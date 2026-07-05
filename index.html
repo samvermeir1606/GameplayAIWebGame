@@ -2,395 +2,584 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Tactical AI Sim - Original Style</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zombie Survival AI Simulator - Precise Replica</title>
     <style>
-        * {
-            box-sizing: border-box;
-            user-select: none;
-            -webkit-user-select: none;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            margin: 0;
-            padding: 0;
-            background-color: #0d0d0d;
-            color: #d1d5db;
-            font-family: monospace;
-            overflow: hidden;
-            position: relative;
+            background-color: #2b2b2b;
+            color: #b0b0b0;
+            font-family: 'Lucida Console', 'Courier New', monospace;
+            display: flex;
             height: 100vh;
-            width: 100vw;
+            overflow: hidden;
+        }
+        #simulation-container {
+            flex: 1;
+            background-color: #222;
+            position: relative;
+            overflow: hidden;
         }
         canvas {
-            display: block;
-            width: 100%;
-            height: 100%;
-            background-color: #1a1a1a;
-        }
-        #ui-window {
+            background-color: #3d3d3d;
             position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 280px;
-            height: auto;
-            background: rgba(16, 16, 16, 0.9);
-            border: 2px solid #3f3f46;
-            border-radius: 4px;
-            padding: 15px;
-            pointer-events: none;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.7);
         }
-        #ui-window h3 {
-            margin: 0 0 10px 0;
-            color: #fca311;
-            text-transform: uppercase;
-            font-size: 16px;
-            text-align: center;
-        }
-        .ui-line {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 6px;
+        #sidebar {
+            width: 320px;
+            background-color: #1a1a1a;
+            border-left: 2px solid #333;
+            padding: 20px;
             font-size: 13px;
+            line-height: 1.6;
+            z-index: 10;
+            overflow-y: auto;
         }
-        .ui-line .val { color: #fca311; font-weight: bold; }
-        .danger .val { color: #dc2626; }
+        .section-title {
+            color: #888;
+            border-bottom: 1px solid #333;
+            margin-top: 15px;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+        .stat-line { display: flex; justify-content: space-between; }
+        .stat-val { color: #ffffff; }
+        .inv-slot { color: #aaaaaa; }
     </style>
 </head>
 <body>
 
-    <div id="ui-window">
-        <h3>Simulation Stats</h3>
-        <div class="ui-line"><span>HERO MODE:</span> <span class="val">AUTONOMOUS</span></div>
-        <div class="ui-line"><span>WEAPON:</span> <span id="ui-weapon" class="val">Pistol (DPS 1.5, Ammo 5)</span></div>
-        <div class="ui-line"><span>SCORE:</span> <span id="ui-score" class="val">7.5</span></div>
-        <div class="ui-line danger"><span>ZOMBIES ALIVE:</span> <span id="ui-zombies" class="val">0</span></div>
+    <div id="simulation-container">
+        <canvas id="gameCanvas"></canvas>
     </div>
 
-    <canvas id="gameCanvas"></canvas>
-
-<script>
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-
-// --- FIXED MAP CONFIGURATION (5x5 of original view) ---
-const MAP_SIZE = 2000; 
-let VIEW_WIDTH = window.innerWidth;
-let VIEW_HEIGHT = window.innerHeight;
-
-function resizeCanvas() {
-    VIEW_WIDTH = window.innerWidth;
-    VIEW_HEIGHT = window.innerHeight;
-    canvas.width = VIEW_WIDTH;
-    canvas.height = VIEW_HEIGHT;
-}
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
-
-// --- ENTITIES & OBJECTS ---
-const keys = {};
-
-class Wall {
-    constructor(x, y, w, h) {
-        this.x = x;
-        this.y = y;
-        this.w = w;
-        this.h = h;
-    }
-    draw(camX, camY) {
-        // ORIGINAL STYLE: Bright Green Walls
-        ctx.fillStyle = '#10b981';
-        ctx.fillRect(this.x - camX, this.y - camY, this.w, this.h);
-        ctx.strokeStyle = '#059669';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(this.x - camX, this.y - camY, this.w, this.h);
-    }
-}
-
-class WeaponDrop {
-    constructor(x, y, dps, maxAmmo) {
-        this.x = x;
-        this.y = y;
-        this.radius = 6;
-        this.dps = dps;
-        this.maxAmmo = maxAmmo;
-    }
-    getUtilityScore() { return this.dps * this.maxAmmo; }
-    draw(camX, camY) {
-        // ORIGINAL STYLE: Yellow Dot Pickup
-        ctx.beginPath();
-        ctx.arc(this.x - camX, this.y - camY, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#fca311';
-        ctx.fill();
-        ctx.closePath();
-    }
-}
-
-class Zombie {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.radius = 12;
-        this.speed = 1.6;
-    }
-    update(heroX, heroY) {
-        const dx = heroX - this.x;
-        const dy = heroY - this.y;
-        const dist = Math.hypot(dx, dy);
+    <div id="sidebar">
+        <div class="section-title" style="margin-top:0;">World Info</div>
+        <div class="stat-line">SCORE:<span id="ui-score" class="stat-val">0</span></div>
         
-        if (dist > 5) {
-            const angle = Math.atan2(dy, dx);
-            let nextX = this.x + Math.cos(angle) * this.speed;
-            let nextY = this.y + Math.sin(angle) * this.speed;
+        <div class="section-title">Agent Info</div>
+        <div class="stat-line">Health:<span id="ui-health" class="stat-val">10</span></div>
+        <div class="stat-line">Energy:<span id="ui-energy" class="stat-val">20</span></div>
+        <div class="stat-line">Stamina:<span id="ui-stamina" class="stat-val">18.00</span></div>
+        <div class="stat-line">RunMode:<span id="ui-runmode" class="stat-val">FALSE</span></div>
+        <div class="stat-line">Current Spd:<span id="ui-speed" class="stat-val">7.50</span></div>
+        <div class="stat-line">Max Spd:<span id="ui-maxspeed" class="stat-val">7.50</span></div>
+        <div class="stat-line">Bitten:<span id="ui-bitten" class="stat-val">FALSE</span></div>
+        <div class="stat-line">Difficulty:<span id="ui-difficulty" class="stat-val">0.6</span></div>
 
-            if (!checkWallCollision(nextX, this.y, this.radius)) this.x = nextX;
-            if (!checkWallCollision(this.x, nextY, this.radius)) this.y = nextY;
+        <div class="section-title">Inventory</div>
+        <div class="inv-slot">SLOT 0 - <span id="ui-slot0">Empty</span></div>
+        <div class="inv-slot">SLOT 1 - <span id="ui-slot1">Empty</span></div>
+        <div class="inv-slot">SLOT 2 - <span id="ui-slot2">Empty</span></div>
+        <div class="inv-slot">SLOT 3 - <span id="ui-slot3">Empty</span></div>
+        <div class="inv-slot">SLOT 4 - <span id="ui-slot4">Empty</span></div>
+        <br>
+        <div class="stat-line">Selected Slot:<span id="ui-selected" class="stat-val">0</span></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('simulation-container');
+
+        // --- MAP CONFIGURATION (5x larger world space than viewport) ---
+        const WORLD_WIDTH = 4000;
+        const WORLD_HEIGHT = 2500;
+        
+        // Handle resizing canvas
+        function resizeCanvas() {
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
         }
-    }
-    draw(camX, camY) {
-        // ORIGINAL STYLE: Red Zombie
-        ctx.beginPath();
-        ctx.arc(this.x - camX, this.y - camY, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#dc2626';
-        ctx.fill();
-        ctx.closePath();
-    }
-}
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
 
-class Hero {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.radius = 12;
-        this.speed = 3.8;
-        this.angle = 0;
-        this.weapon = { dps: 1.5, maxAmmo: 5 };
-        this.viewRange = 420; 
-        this.viewAngle = Math.PI / 3; // 60 degrees
-        this.numRays = 25; 
-    }
+        // Simple 2D Vector Helper
+        class Vector2 {
+            constructor(x = 0, y = 0) { this.x = x; this.y = y; }
+            set(x, y) { this.x = x; this.y = y; return this; }
+            add(v) { this.x += v.x; this.y += v.y; return this; }
+            sub(v) { this.x -= v.x; this.y -= v.y; return this; }
+            mult(n) { this.x *= n; this.y *= n; return this; }
+            div(n) { this.x /= n; this.y /= n; return this; }
+            mag() { return Math.sqrt(this.x * this.x + this.y * this.y); }
+            normalize() { let m = this.mag(); if (m !== 0) this.div(m); return this; }
+            limit(max) { if (this.mag() > max) { this.normalize(); this.mult(max); } return this; }
+            heading() { return Math.atan2(this.y, this.x); }
+            dist(v) { return Math.sqrt((this.x - v.x)**2 + (this.y - v.y)**2); }
+            copy() { return new Vector2(this.x, this.y); }
+        }
 
-    getUtilityScore() { return this.weapon.dps * this.weapon.maxAmmo; }
+        // --- HOUSES GENERATION & FIXED ARCHITECTURE ---
+        const houses = [
+            // Row 1
+            { x: 200, y: 200, w: 400, h: 300, walls: [], door: { x: 380, y: 500, w: 40, h: 10, side: 'bottom' } },
+            { x: 1000, y: 150, w: 500, h: 400, walls: [], door: { x: 1000, y: 300, w: 10, h: 40, side: 'left' } },
+            { x: 2000, y: 250, w: 300, h: 300, walls: [], door: { x: 2120, y: 250, w: 40, h: 10, side: 'top' } },
+            // Center Clusters
+            { x: 1500, y: 1100, w: 600, h: 400, walls: [], door: { x: 1800, y: 1500, w: 50, h: 10, side: 'bottom' } },
+            { x: 600, y: 1400, w: 350, h: 350, walls: [], door: { x: 950, y: 1550, w: 10, h: 40, side: 'right' } },
+            // Lower map zones
+            { x: 2800, y: 1600, w: 500, h: 400, walls: [], door: { x: 3000, y: 2000, w: 50, h: 10, side: 'bottom' } }
+        ];
 
-    update() {
-        // AUTONOMOUS AI MOVEMENT (driven entirely by logic, not mouse)
-        // Find closest weapon pickup
-        let target = null;
-        let minDist = Infinity;
-        
-        for(let drop of weaponDrops) {
-            let d = Math.hypot(drop.x - this.x, drop.y - this.y);
-            if(d < minDist) {
-                minDist = d;
-                target = drop;
+        // Process individual solid segments for Raycasting and Intersections
+        function structureWalls() {
+            houses.forEach(h => {
+                const wallSegments = [
+                    { p1: new Vector2(h.x, h.y), p2: new Vector2(h.x + h.w, h.y) }, // Top
+                    { p1: new Vector2(h.x + h.w, h.y), p2: new Vector2(h.x + h.w, h.y + h.h) }, // Right
+                    { p1: new Vector2(h.x + h.w, h.y + h.h), p2: new Vector2(h.x, h.y + h.h) }, // Bottom
+                    { p1: new Vector2(h.x, h.y + h.h), p2: new Vector2(h.x, h.y) }  // Left
+                ];
+
+                wallSegments.forEach(ws => {
+                    // Carve out spaces for doors so players/rays pass seamlessly
+                    if (h.door.side === 'top' && ws.p1.y === h.y && ws.p2.y === h.y) {
+                        h.walls.push({ p1: ws.p1, p2: new Vector2(h.door.x, h.y) });
+                        h.walls.push({ p1: new Vector2(h.door.x + h.door.w, h.y), p2: ws.p2 });
+                    } else if (h.door.side === 'bottom' && ws.p1.y === h.y+h.h && ws.p2.y === h.y+h.h) {
+                        h.walls.push({ p1: ws.p1, p2: new Vector2(h.door.x, h.y + h.h) });
+                        h.walls.push({ p1: new Vector2(h.door.x + h.door.w, h.y + h.h), p2: ws.p2 });
+                    } else if (h.door.side === 'left' && ws.p1.x === h.x && ws.p2.x === h.x) {
+                        h.walls.push({ p1: ws.p1, p2: new Vector2(h.x, h.door.y) });
+                        h.walls.push({ p1: new Vector2(h.x, h.door.y + h.door.h), p2: ws.p2 });
+                    } else if (h.door.side === 'right' && ws.p1.x === h.x+h.w && ws.p2.x === h.x+h.w) {
+                        h.walls.push({ p1: ws.p1, p2: new Vector2(h.x + h.w, h.door.y) });
+                        h.walls.push({ p1: new Vector2(h.x + h.w, h.door.y + h.door.h), p2: ws.p2 });
+                    } else {
+                        h.walls.push(ws);
+                    }
+                });
+            });
+        }
+        structureWalls();
+
+        // --- GLOBAL ARRAYS ---
+        let items = [];
+        let zombies = [];
+        let bullets = [];
+
+        // Generate customized item profiles
+        function spawnItems() {
+            houses.forEach(h => {
+                for(let i=0; i<3; i++) {
+                    let r = Math.random();
+                    let meta = {};
+                    if(r < 0.35) {
+                        meta = { name: `PISTOL (DPS: ${(Math.random()*3 + 1).toFixed(1)}, AMMO: ${Math.floor(Math.random()*6 + 2)})`, type: 'gun', color: '#0be881' };
+                    } else if(r < 0.65) {
+                        meta = { name: 'FOOD (7)', type: 'food', color: '#ffd32a' };
+                    } else {
+                        meta = { name: 'MEDKIT (4)', type: 'medkit', color: '#ff5e57' };
+                    }
+                    items.push({
+                        pos: new Vector2(h.x + 40 + Math.random()*(h.w-80), h.y + 40 + Math.random()*(h.h-80)),
+                        meta: meta
+                    });
+                }
+            });
+        }
+
+        function populateZombies() {
+            for(let i=0; i<35; i++) {
+                zombies.push({
+                    pos: new Vector2(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT),
+                    velocity: new Vector2((Math.random()-0.5)*2, (Math.random()-0.5)*2),
+                    wanderAngle: Math.random() * Math.PI * 2,
+                    health: 35
+                });
             }
         }
 
-        if (target) {
-            const dx = target.x - this.x;
-            const dy = target.y - this.y;
-            this.angle = Math.atan2(dy, dx);
+        // --- THE AGENT ---
+        const agent = {
+            pos: new Vector2(400, 450),
+            velocity: new Vector2(0, 0),
+            acceleration: new Vector2(0, 0),
+            maxSpeed: 3.5,
+            maxForce: 0.25,
+            heading: 0,
+            fovAngle: Math.PI / 2.5,
+            fovRange: 220,
+            
+            health: 10,
+            energy: 20,
+            stamina: 18,
+            runMode: "FALSE",
+            bitten: "FALSE",
+            score: 0,
+            inventory: [null, null, null, null, null],
+            selectedSlot: 0,
+            wanderAngle: 0,
+            shootCooldown: 0,
+            viewPoints: [] // Populated by raycaster
+        };
 
-            // FIX: Smooth arrival, no bouncing
-            if (minDist > this.speed) {
-                let nextX = this.x + Math.cos(this.angle) * this.speed;
-                let nextY = this.y + Math.sin(this.angle) * this.speed;
-                this.executeMovement(nextX, nextY);
+        // --- LINE INTERSECTION HELPER FOR RAYCASTING ---
+        function getIntersection(p1, p2, p3, p4) {
+            let denominator = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
+            if (denominator === 0) return null;
+            let ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / denominator;
+            let ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / denominator;
+            if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
+                return new Vector2(p1.x + ua * (p2.x - p1.x), p1.y + ua * (p2.y - p1.y));
+            }
+            return null;
+        }
+
+        // --- RAYCAST VISION ENGINE (Obscured by Walls) ---
+        function calculateFOVRays() {
+            agent.viewPoints = [];
+            const numRays = 30;
+            const startAngle = agent.heading - agent.fovAngle / 2;
+            const angleStep = agent.fovAngle / (numRays - 1);
+
+            for (let i = 0; i < numRays; i++) {
+                let currentAngle = startAngle + angleStep * i;
+                let rayEnd = new Vector2(
+                    agent.pos.x + Math.cos(currentAngle) * agent.fovRange,
+                    agent.pos.y + Math.sin(currentAngle) * agent.fovRange
+                );
+
+                let closestIntersect = rayEnd;
+                let minDist = agent.fovRange;
+
+                houses.forEach(h => {
+                    h.walls.forEach(w => {
+                        let hit = getIntersection(agent.pos, rayEnd, w.p1, w.p2);
+                        if (hit) {
+                            let d = agent.pos.dist(hit);
+                            if (d < minDist) {
+                                minDist = d;
+                                closestIntersect = hit;
+                            }
+                        }
+                    });
+                });
+                agent.viewPoints.push(closestIntersect);
+            }
+        }
+
+        // Raycasting validation checking if entity inside polygon shape
+        function isPointInView(targetPos) {
+            let d = agent.pos.dist(targetPos);
+            if (d > agent.fovRange) return false;
+            
+            let toTarget = targetPos.copy().sub(agent.pos);
+            let angle = Math.atan2(toTarget.y, toTarget.x) - agent.heading;
+            while (angle < -Math.PI) angle += Math.PI * 2;
+            while (angle > Math.PI) angle -= Math.PI * 2;
+            
+            if (Math.abs(angle) > agent.fovAngle / 2) return false;
+
+            // Direct line-of-sight check to verify structural occlusion blocking
+            let wallBlock = false;
+            houses.forEach(h => {
+                h.walls.forEach(w => {
+                    if (getIntersection(agent.pos, targetPos, w.p1, w.p2)) wallBlock = true;
+                });
+            });
+            return !wallBlock;
+        }
+
+        // --- STEERING BEHAVIORS (With Arrive deceleration to stop overshooting) ---
+        function steerArrive(entity, targetPos, decelerationRadius = 80) {
+            let desired = targetPos.copy().sub(entity.pos);
+            let distance = desired.mag();
+            if (distance === 0) return new Vector2(0,0);
+
+            if (distance < decelerationRadius) {
+                // Smooth deceleration ramp to completely remove bouncing back/forth artifacts
+                let speed = entity.maxSpeed * (distance / decelerationRadius);
+                desired.normalize().mult(speed);
             } else {
-                this.executeMovement(target.x, target.y);
+                desired.normalize().mult(entity.maxSpeed);
             }
+            return desired.sub(entity.velocity).limit(entity.maxForce);
         }
 
-        // --- AUTOMATED AI WEAPON EVALUATION ---
-        weaponDrops.forEach((drop, index) => {
-            const dist = Math.hypot(drop.x - this.x, drop.y - this.y);
-            if (dist < this.radius + drop.radius + 2) { 
-                if (drop.getUtilityScore() > this.getUtilityScore()) {
-                    this.weapon = { dps: drop.dps, maxAmmo: drop.maxAmmo };
-                    weaponDrops.splice(index, 1);
-                    updateUI();
+        function steerWander(entity) {
+            entity.wanderAngle += (Math.random() - 0.5) * 0.4;
+            let circleCenter = entity.velocity.copy().normalize().mult(60);
+            let displacement = new Vector2(Math.cos(entity.wanderAngle), Math.sin(entity.wanderAngle)).mult(15);
+            return circleCenter.add(displacement).limit(entity.maxForce);
+        }
+
+        function steerFlee(entity, targetPos) {
+            let desired = entity.pos.copy().sub(targetPos).normalize().mult(entity.maxSpeed);
+            return desired.sub(entity.velocity).limit(entity.maxForce);
+        }
+
+        // --- RIGID BODY SLIDING WALL COLLISIONS ---
+        function processCollisions(entity, lastPos, radius = 10) {
+            // Finite Map Boundaries
+            if (entity.pos.x - radius < 0) entity.pos.x = radius;
+            if (entity.pos.x + radius > WORLD_WIDTH) entity.pos.x = WORLD_WIDTH - radius;
+            if (entity.pos.y - radius < 0) entity.pos.y = radius;
+            if (entity.pos.y + radius > WORLD_HEIGHT) entity.pos.y = WORLD_HEIGHT - radius;
+
+            // House Wall Checkers
+            houses.forEach(h => {
+                h.walls.forEach(w => {
+                    // Vector projection checks to handle circles sliding down wall segments cleanly
+                    let ab = w.p2.copy().sub(w.p1);
+                    let ac = entity.pos.copy().sub(w.p1);
+                    let t = (ac.x * ab.x + ac.y * ab.y) / (ab.x * ab.x + ab.y * ab.y);
+                    t = Math.max(0, Math.min(1, t));
+                    let closestPoint = w.p1.copy().add(ab.mult(t));
+                    
+                    if (entity.pos.dist(closestPoint) < radius) {
+                        let pushAway = entity.pos.copy().sub(closestPoint).normalize().mult(radius);
+                        entity.pos.copy(closestPoint.add(pushAway));
+                    }
+                });
+            });
+        }
+
+        // Check weapon values inside slots to determine if we update / replace weapons
+        function evalWeaponRetention(newWeaponString) {
+            // Parse metrics
+            let dps = parseFloat(newWeaponString.match(/DPS:\s*([0-9.]+)/)[1]);
+            let ammo = parseInt(newWeaponString.match(/AMMO:\s*([0-9]+)/)[1]);
+
+            let standardGunSlot = agent.inventory.findIndex(i => i && i.type === 'gun');
+            if(standardGunSlot === -1) return true; // Keep it if slot empty
+
+            let oldGun = agent.inventory[standardGunSlot];
+            let oldDps = parseFloat(oldGun.name.match(/DPS:\s*([0-9.]+)/)[1]);
+            
+            // Evaluation check rule: If new gun is stronger, drop old gun
+            return dps > oldDps;
+        }
+
+        // --- UPDATE LOGIC LOOP ---
+        function update() {
+            if (agent.energy > 0) agent.energy -= 0.003;
+            if (agent.shootCooldown > 0) agent.shootCooldown--;
+
+            calculateFOVRays();
+            let lastPos = agent.pos.copy();
+
+            // AI Decision evaluation state tree matrix
+            let visibleZombies = zombies.filter(z => isPointInView(z.pos));
+            let visibleItems = items.filter(i => isPointInView(i.pos));
+            let gunSlot = agent.inventory.findIndex(i => i && i.type === 'gun');
+
+            let steerForce = new Vector2(0,0);
+
+            if (visibleZombies.length > 0) {
+                let target = visibleZombies[0];
+                if (gunSlot !== -1 && parseInt(agent.inventory[gunSlot].name.match(/AMMO:\s*([0-9]+)/)[1]) > 0) {
+                    agent.selectedSlot = gunSlot;
+                    agent.maxSpeed = 0; // Lock velocity down to accurately face target 
+                    agent.heading = target.pos.copy().sub(agent.pos).heading();
+                    
+                    if (agent.shootCooldown <= 0) {
+                        bullets.push({ pos: agent.pos.copy(), vel: target.pos.copy().sub(agent.pos).normalize().mult(12) });
+                        agent.shootCooldown = 20;
+                        // Deduct ammo counts dynamically
+                        let ammo = parseInt(agent.inventory[gunSlot].name.match(/AMMO:\s*([0-9]+)/)[1]) - 1;
+                        let dps = agent.inventory[gunSlot].name.match(/DPS:\s*([0-9.]+)/)[1];
+                        if (ammo <= 0) agent.inventory[gunSlot] = null; // Discard broken weapon
+                        else agent.inventory[gunSlot].name = `PISTOL (DPS: ${dps}, AMMO: ${ammo})`;
+                    }
+                } else {
+                    agent.maxSpeed = 4.0; agent.runMode = "TRUE";
+                    if(agent.stamina > 0) agent.stamina -= 0.05;
+                    steerForce = steerFlee(agent, target.pos);
+                }
+            } else if (agent.health < 5 && agent.inventory.some(i => i && i.type === 'medkit')) {
+                let idx = agent.inventory.findIndex(i => i && i.type === 'medkit');
+                agent.health = Math.min(10, agent.health + 4);
+                agent.inventory[idx] = null;
+            } else if (agent.energy < 6 && agent.inventory.some(i => i && i.type === 'food')) {
+                let idx = agent.inventory.findIndex(i => i && i.type === 'food');
+                agent.energy = Math.min(20, agent.energy + 8);
+                agent.inventory[idx] = null;
+            } else if (visibleItems.length > 0) {
+                agent.maxSpeed = 2.6; agent.runMode = "FALSE";
+                if(agent.stamina < 18) agent.stamina += 0.02;
+                steerForce = steerArrive(agent, visibleItems[0].pos);
+            } else {
+                agent.maxSpeed = 2.2; agent.runMode = "FALSE";
+                if(agent.stamina < 18) agent.stamina += 0.03;
+                steerForce = steerWander(agent);
+            }
+
+            agent.acceleration.add(steerForce);
+            agent.velocity.add(agent.acceleration).limit(agent.maxSpeed);
+            agent.pos.add(agent.velocity);
+            agent.acceleration.mult(0);
+            if (agent.velocity.mag() > 0.1 && agent.maxSpeed > 0) agent.heading = agent.velocity.heading();
+
+            processCollisions(agent, lastPos, 10);
+
+            // Handle Bullets collision parsing against solid structure wall configurations
+            for(let b=bullets.length-1; b>=0; b--) {
+                bullets[b].pos.add(bullets[b].vel);
+                let broken = false;
+                
+                // Bullet collision check on walls
+                houses.forEach(h => {
+                    h.walls.forEach(w => {
+                        let endPoint = bullets[b].pos.copy().add(bullets[b].vel);
+                        if(getIntersection(bullets[b].pos, endPoint, w.p1, w.p2)) broken = true;
+                    });
+                });
+
+                // Bullet collision check on zombies
+                for(let z of zombies) {
+                    if(bullets[b].pos.dist(z.pos) < 14) {
+                        z.health -= 15; broken = true; break;
+                    }
+                }
+
+                if(broken || bullets[b].pos.x < 0 || bullets[b].pos.x > WORLD_WIDTH || bullets[b].pos.y < 0 || bullets[b].pos.y > WORLD_HEIGHT) {
+                    bullets.splice(b,1);
                 }
             }
-        });
-    }
 
-    executeMovement(nx, ny) {
-        // FIX: Finite Map boundaries
-        nx = Math.max(this.radius, Math.min(MAP_SIZE - this.radius, nx));
-        ny = Math.max(this.radius, Math.min(MAP_SIZE - this.radius, ny));
+            // Zombies processing loops
+            zombies.forEach((z, idx) => {
+                if(z.health <= 0) { zombies.splice(idx,1); agent.score+=40; return; }
+                let zLast = z.pos.copy();
+                let zForce = agent.pos.dist(z.pos) < 250 ? steerArrive(z, agent.pos) : steerWander(z);
+                z.velocity.add(zForce).limit(1.3);
+                z.pos.add(z.velocity);
+                processCollisions(z, zLast, 10);
 
-        // FIX: Strict wall collision
-        if (!checkWallCollision(nx, this.y, this.radius)) this.x = nx;
-        if (!checkWallCollision(this.x, ny, this.radius)) this.y = ny;
-    }
+                if(z.pos.dist(agent.pos) < 14) { agent.health = Math.max(0, agent.health - 0.04); agent.bitten = "TRUE"; }
+                else agent.bitten = "FALSE";
+            });
 
-    drawViewCone(camX, camY) {
-        const startAngle = this.angle - this.viewAngle / 2;
-        const angleStep = this.viewAngle / (this.numRays - 1);
-        const points = [[this.x - camX, this.y - camY]];
-
-        for (let i = 0; i < this.numRays; i++) {
-            const rayAngle = startAngle + i * angleStep;
-            let targetX = this.x + Math.cos(rayAngle) * this.viewRange;
-            let targetY = this.y + Math.sin(rayAngle) * this.viewRange;
-
-            let closestT = 1; 
-            for (let wall of walls) {
-                const hitT = checkRayRectIntersection(this.x, this.y, targetX, targetY, wall);
-                if (hitT !== null && hitT < closestT) closestT = hitT;
+            // Pickup items processing checks
+            for(let i=items.length-1; i>=0; i--) {
+                if(agent.pos.dist(items[i].pos) < 15) {
+                    let itemMeta = items[i].meta;
+                    if (itemMeta.type === 'gun' && !evalWeaponRetention(itemMeta.name)) {
+                        items.splice(i, 1); // Skip lower DPS weapons
+                        continue;
+                    }
+                    
+                    let freeSlot = agent.inventory.findIndex(slot => slot === null);
+                    if (freeSlot !== -1) {
+                        // If replacing gun, wipe old gun instance
+                        if(itemMeta.type === 'gun') {
+                            let oldGunIdx = agent.inventory.findIndex(slot => slot && slot.type === 'gun');
+                            if(oldGunIdx !== -1) agent.inventory[oldGunIdx] = null;
+                        }
+                        agent.inventory[freeSlot] = itemMeta;
+                        items.splice(i,1);
+                        agent.score += 20;
+                    }
+                }
             }
 
-            const finalX = this.x + (targetX - this.x) * closestT;
-            const finalY = this.y + (targetY - this.y) * closestT;
-            points.push([finalX - camX, finalY - camY]);
+            if(items.length < 5) spawnItems();
+            if(zombies.length < 10) populateZombies();
         }
 
-        // ORIGINAL STYLE: Soft Yellow Visuals Arc
-        ctx.fillStyle = 'rgba(252, 163, 17, 0.1)';
-        ctx.beginPath();
-        ctx.moveTo(points[0][0], points[0][1]);
-        for (let i = 1; i < points.length; i++) {
-            ctx.lineTo(points[i][0], points[i][1]);
+        // --- RENDER MATRIX MAP OVERLAYS ---
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            // Camera tracking movement shifts matrix canvas offsets automatically
+            let camX = -agent.pos.x + canvas.width / 2;
+            let camY = -agent.pos.y + canvas.height / 2;
+            camX = Math.max(canvas.width - WORLD_WIDTH, Math.min(0, camX));
+            camY = Math.max(canvas.height - WORLD_HEIGHT, Math.min(0, camY));
+            ctx.translate(camX, camY);
+
+            // Draw World Constraints boundary boxes
+            ctx.strokeStyle = '#222'; ctx.lineWidth = 10;
+            ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+            // Draw Houses Solid Frames
+            ctx.strokeStyle = '#5a9e5a'; ctx.lineWidth = 6;
+            houses.forEach(h => {
+                ctx.strokeRect(h.x, h.y, h.w, h.h);
+                ctx.fillStyle = '#3d3d3d';
+                ctx.fillRect(h.door.x - 2, h.door.y - 2, h.door.w + 4, h.door.h + 4);
+            });
+
+            // Draw Items
+            items.forEach(i => {
+                ctx.fillStyle = i.meta.color;
+                ctx.beginPath(); ctx.arc(i.pos.x, i.pos.y, 6, 0, Math.PI * 2); ctx.fill();
+            });
+
+            // Draw Bullets
+            ctx.fillStyle = '#f5cd79';
+            bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.pos.x, b.pos.y, 3, 0, Math.PI * 2); ctx.fill(); });
+
+            // Draw Zombies
+            zombies.forEach(z => {
+                ctx.fillStyle = '#b33939';
+                ctx.beginPath(); ctx.arc(z.pos.x, z.pos.y, 10, 0, Math.PI * 2); ctx.fill();
+            });
+
+            // Draw Raycasted Geometric field cone shape view overlay bounds
+            if (agent.viewPoints.length > 0) {
+                ctx.fillStyle = 'rgba(212, 175, 55, 0.15)';
+                ctx.strokeStyle = 'rgba(212, 175, 55, 0.4)';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(agent.pos.x, agent.pos.y);
+                agent.viewPoints.forEach(p => ctx.lineTo(p.x, p.p ? p.y : p.y));
+                ctx.closePath(); ctx.fill(); ctx.stroke();
+            }
+
+            // Draw Blue selection tracking ring
+            ctx.strokeStyle = '#341f97'; ctx.setLineDash([4, 4]);
+            ctx.beginPath(); ctx.arc(agent.pos.x, agent.pos.y, 22, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+
+            // Draw Agent Center Body element
+            ctx.fillStyle = agent.bitten === "TRUE" ? '#ff3838' : '#218c74';
+            ctx.beginPath(); ctx.arc(agent.pos.x, agent.pos.y, 10, 0, Math.PI * 2); ctx.fill();
+
+            // Heading tick line
+            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(agent.pos.x, agent.pos.y);
+            ctx.lineTo(agent.pos.x + Math.cos(agent.heading)*14, agent.pos.y + Math.sin(agent.heading)*14);
+            ctx.stroke();
+
+            ctx.restore();
         }
-        ctx.closePath();
-        ctx.fill();
-    }
 
-    draw(camX, camY) {
-        // ORIGINAL STYLE: Green Hero
-        ctx.save();
-        ctx.translate(this.x - camX, this.y - camY);
-        ctx.rotate(this.angle);
-        
-        ctx.beginPath();
-        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#10b981';
-        ctx.fill();
-        ctx.closePath();
-        ctx.restore();
-    }
-}
-
-function checkWallCollision(nx, ny, radius) {
-    for (let wall of walls) {
-        if (nx + radius > wall.x && nx - radius < wall.x + wall.w &&
-            ny + radius > wall.y && ny - radius < wall.y + wall.h) {
-            return true;
+        function updateUI() {
+            document.getElementById('ui-score').innerText = agent.score;
+            document.getElementById('ui-health').innerText = Math.ceil(agent.health);
+            document.getElementById('ui-energy').innerText = agent.energy.toFixed(1);
+            document.getElementById('ui-stamina').innerText = agent.stamina.toFixed(2);
+            document.getElementById('ui-runmode').innerText = agent.runMode;
+            document.getElementById('ui-speed').innerText = agent.velocity.mag().toFixed(2);
+            document.getElementById('ui-maxspeed').innerText = agent.maxSpeed.toFixed(2);
+            document.getElementById('ui-bitten').innerText = agent.bitten;
+            document.getElementById('ui-selected').innerText = agent.selectedSlot;
+            
+            for(let i=0; i<5; i++) {
+                let text = agent.inventory[i] ? agent.inventory[i].name : 'Empty';
+                document.getElementById(`ui-slot${i}`).innerText = text;
+                document.getElementById(`ui-slot${i}`).style.color = (i === agent.selectedSlot) ? '#55ff55' : '#aaaaaa';
+            }
         }
-    }
-    return false;
-}
 
-function checkRayRectIntersection(rx1, ry1, rx2, ry2, rect) {
-    let t0 = 0, t1 = 1;
-    const dx = rx2 - rx1;
-    const dy = ry2 - ry1;
+        spawnItems();
+        populateZombies();
 
-    const edges = [
-        { p: -dx, q: rx1 - rect.x },
-        { p: dx, q: rect.x + rect.w - rx1 },
-        { p: -dy, q: ry1 - rect.y },
-        { p: dy, q: rect.y + rect.h - ry1 }
-    ];
-
-    for (let edge of edges) {
-        if (edge.p === 0) {
-            if (edge.q < 0) return null;
-        } else {
-            const t = edge.q / edge.p;
-            if (edge.p < 0) {
-                if (t > t1) return null;
-                if (t > t0) t0 = t;
+        function mainLoop() {
+            if (agent.health > 0) {
+                update(); draw(); updateUI();
+                requestAnimationFrame(mainLoop);
             } else {
-                if (t < t0) return null;
-                if (t < t1) t1 = t;
+                ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0,0,canvas.width,canvas.height);
+                ctx.fillStyle = "#ff3838"; ctx.font = "30px 'Lucida Console'";
+                ctx.fillText("AGENT DEAD", canvas.width/2 - 90, canvas.height/2);
             }
         }
-    }
-    return t0;
-}
-
-// --- WORLD INITIALIZATION (Original Layout Vibe) ---
-const hero = new Hero(200, 200);
-
-const walls = [
-    // Define a "house" using green wall segments, leaving an Entrance
-    new Wall(400, 200, 20, 200), // West Wall
-    new Wall(400, 200, 250, 20), // North Wall
-    new Wall(650, 200, 20, 200), // East Wall
-    new Wall(400, 400, 100, 20), // South Wall L
-    // ENTRANCE IS HERE (100px wide)
-    new Wall(600, 400, 70, 20),  // South Wall R
-
-    // Another room
-    new Wall(1000, 600, 300, 20), // North
-    new Wall(1000, 600, 20, 250), // West
-    new Wall(1000, 850, 300, 20), // South
-    // Entrance on the East side (open)
-
-    // Map Perimeter Caging (Thick boundary walls)
-    new Wall(0, 0, MAP_SIZE, 30),
-    new Wall(0, 0, 30, MAP_SIZE),
-    new Wall(0, MAP_SIZE - 30, MAP_SIZE, 30),
-    new Wall(MAP_SIZE - 30, 0, 30, MAP_SIZE)
-];
-
-const weaponDrops = [
-    new WeaponDrop(525, 300, 4.0, 1), // Inside the first house
-    new WeaponDrop(1150, 725, 2.0, 8), // Inside the second room
-    new WeaponDrop(250, 900, 1.5, 12)  // Out in the open field
-];
-
-const zombies = [
-    new Zombie(800, 500),
-    new Zombie(1200, 200),
-    new Zombie(300, 900),
-    new Zombie(1400, 1400)
-];
-
-function updateUI() {
-    document.getElementById('ui-weapon').innerText = `Pistol (DPS ${hero.weapon.dps}, Ammo ${hero.weapon.maxAmmo})`;
-    document.getElementById('ui-score').innerText = hero.getUtilityScore().toFixed(1);
-    document.getElementById('ui-zombies').innerText = zombies.length;
-}
-updateUI();
-
-// --- GAME LOOP ---
-function loop() {
-    // CAMERA LOCK: Tightly centered on the autonomous green AI hero
-    let camX = hero.x - VIEW_WIDTH / 2;
-    let camY = hero.y - VIEW_HEIGHT / 2;
-    camX = Math.max(0, Math.min(MAP_SIZE - VIEW_WIDTH, camX));
-    camY = Math.max(0, Math.min(MAP_SIZE - VIEW_HEIGHT, camY));
-
-    // Update Entities
-    hero.update();
-    zombies.forEach(zombie => zombie.update(hero.x, hero.y));
-
-    // Draw Frame (Original Aesthetic Order)
-    ctx.clearRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
-
-    // Schematic Grid rendering
-    ctx.strokeStyle = '#262626';
-    ctx.lineWidth = 1;
-    for(let x = 0; x < MAP_SIZE; x += 100) {
-        ctx.beginPath(); ctx.moveTo(x - camX, 0); ctx.lineTo(x - camX, MAP_SIZE); ctx.stroke();
-    }
-    for(let y = 0; y < MAP_SIZE; y += 100) {
-        ctx.beginPath(); ctx.moveTo(0, y - camY); ctx.lineTo(MAP_SIZE, y - camY); ctx.stroke();
-    }
-
-    // DRAW ORDER
-    weaponDrops.forEach(drop => drop.draw(camX, camY)); // Yellow dots
-    hero.drawViewCone(camX, camY); // Yellow Raycasted Arc
-    zombies.forEach(zombie => zombie.draw(camX, camY)); // Red zombies
-    walls.forEach(wall => wall.draw(camX, camY)); // Green wall segments (with entrances)
-    hero.draw(camX, camY); // Green hero
-
-    requestAnimationFrame(loop);
-}
-
-loop();
-</script>
+        mainLoop();
+    </script>
 </body>
 </html>
