@@ -1,535 +1,343 @@
 <!DOCTYPE html>
-<html lang="en"> 
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zombie Survival AI Simulator - Complete Engine</title>
+    <title>Top-Down Tactical Engine</title>
     <style>
-        * {
-            box-sizing: border-box;
+        body {
             margin: 0;
             padding: 0;
-        }
-        body {
-            background-color: #2b2b2b;
-            color: #b0b0b0;
-            font-family: 'Lucida Console', 'Courier New', monospace;
-            display: flex;
-            height: 100vh;
+            background-color: #111;
+            color: #fff;
+            font-family: sans-serif;
             overflow: hidden;
-        }
-        #simulation-container {
-            flex: 1;
-            background-color: #4a4a4a;
-            position: relative;
             display: flex;
-            align-items: center;
             justify-content: center;
+            align-items: center;
+            height: 100vh;
         }
         canvas {
-            background-color: #3d3d3d;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
-        }
-        #sidebar {
-            width: 320px;
+            border: 4px solid #444;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
             background-color: #1a1a1a;
-            border-left: 2px solid #333;
-            padding: 20px;
-            font-size: 13px;
-            line-height: 1.6;
-            overflow-y: auto;
         }
-        .section-title {
-            color: #888;
-            border-bottom: 1px solid #333;
-            margin-top: 15px;
-            margin-bottom: 5px;
-            text-transform: uppercase;
-            font-weight: bold;
-        }
-        .stat-line {
-            display: flex;
-            justify-content: space-between;
-        }
-        .stat-val {
-            color: #ffffff;
-        }
-        .inv-slot {
-            color: #aaaaaa;
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+            text-shadow: 2px 2px 2px #000;
+            font-family: monospace;
+            font-size: 16px;
         }
     </style>
 </head>
 <body>
 
-    <div id="simulation-container">
-        <canvas id="gameCanvas" width="800" height="500"></canvas>
+    <div id="ui-layer">
+        <div>WEAPON: <span id="ui-weapon">Pistol (DPS: 1.5, Ammo: 5)</span></div>
+        <div>SCORE: <span id="ui-score">7.5</span></div>
+        <div>BOUNDS: 2000x2000 (Fixed Map)</div>
     </div>
 
-    <div id="sidebar">
-        <div class="section-title" style="margin-top:0;">World Info</div>
-        <div class="stat-line">SCORE:<span id="ui-score" class="stat-val">0</span></div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- CONSTANTS & CONFIG ---
+const MAP_SIZE = 2000; // 5x5 layout of 400x400 viewports
+const VIEW_WIDTH = canvas.width;
+const VIEW_HEIGHT = canvas.height;
+
+// --- GAME STATE ---
+const keys = {};
+const mouse = { x: 0, y: 0, worldX: 0, worldY: 0 };
+
+class Wall {
+    constructor(x, y, w, h) {
+        this.x = x;
+        this.y = y;
+        this.w = w;
+        this.h = h;
+    }
+    draw(camX, camY) {
+        ctx.fillStyle = '#4a5568';
+        ctx.fillRect(this.x - camX, this.y - camY, this.w, this.h);
+        ctx.strokeStyle = '#2d3748';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(this.x - camX, this.y - camY, this.w, this.h);
+    }
+}
+
+class WeaponDrop {
+    constructor(x, y, dps, maxAmmo) {
+        this.x = x;
+        this.y = y;
+        this.radius = 10;
+        this.dps = dps;
+        this.maxAmmo = maxAmmo;
+    }
+    getUtilityScore() {
+        return this.dps * this.maxAmmo;
+    }
+    draw(camX, camY) {
+        ctx.beginPath();
+        ctx.arc(this.x - camX, this.y - camY, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#ecc94b';
+        ctx.fill();
+        ctx.closePath();
+    }
+}
+
+class Hero {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.radius = 16;
+        this.speed = 4;
+        this.angle = 0;
         
-        <div class="section-title">Agent Info</div>
-        <div class="stat-line">Health:<span id="ui-health" class="stat-val">10</span></div>
-        <div class="stat-line">Energy:<span id="ui-energy" class="stat-val">20</span></div>
-        <div class="stat-line">Stamina:<span id="ui-stamina" class="stat-val">18.00</span></div>
-        <div class="stat-line">RunMode:<span id="ui-runmode" class="stat-val">FALSE</span></div>
-        <div class="stat-line">Current Spd:<span id="ui-speed" class="stat-val">7.50</span></div>
-        <div class="stat-line">Max Spd:<span id="ui-maxspeed" class="stat-val">7.50</span></div>
-        <div class="stat-line">Bitten:<span id="ui-bitten" class="stat-val">FALSE</span></div>
-        <div class="stat-line">Difficulty:<span id="ui-difficulty" class="stat-val">0.6</span></div>
+        // Initial Weapon Setup
+        this.weapon = { dps: 1.5, maxAmmo: 5 };
+        
+        // Raycasting configurations
+        this.viewRange = 350;
+        this.viewAngle = Math.PI / 3; // 60 degrees
+        this.numRays = 25;
+    }
 
-        <div class="section-title">Inventory</div>
-        <div class="inv-slot">SLOT 0 - <span id="ui-slot0">Empty</span></div>
-        <div class="inv-slot">SLOT 1 - <span id="ui-slot1">Empty</span></div>
-        <div class="inv-slot">SLOT 2 - <span id="ui-slot2">Empty</span></div>
-        <div class="inv-slot">SLOT 3 - <span id="ui-slot3">Empty</span></div>
-        <div class="inv-slot">SLOT 4 - <span id="ui-slot4">Empty</span></div>
-        <br>
-        <div class="stat-line">Selected Slot:<span id="ui-selected" class="stat-val">0</span></div>
-    </div>
+    getUtilityScore() {
+        return this.weapon.dps * this.weapon.maxAmmo;
+    }
 
-    <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
+    update() {
+        // --- 1. MOVEMENT & INPUT HANDLING ---
+        let moveX = 0;
+        let moveY = 0;
 
-        // --- PHASE 1: VECTOR MECHANICS ---
-        class Vector2 {
-            constructor(x = 0, y = 0) { this.x = x; this.y = y; }
-            set(x, y) { this.x = x; this.y = y; return this; }
-            add(v) { this.x += v.x; this.y += v.y; return this; }
-            sub(v) { this.x -= v.x; this.y -= v.y; return this; }
-            mult(n) { this.x *= n; this.y *= n; return this; }
-            div(n) { this.x /= n; this.y /= n; return this; }
-            mag() { return Math.sqrt(this.x * this.x + this.y * this.y); }
-            normalize() { let m = this.mag(); if (m !== 0) this.div(m); return this; }
-            limit(max) { if (this.mag() > max) { this.normalize(); this.mult(max); } return this; }
-            heading() { return Math.atan2(this.y, this.x); }
-            dist(v) { return Math.sqrt((this.x - v.x)**2 + (this.y - v.y)**2); }
-            copy() { return new Vector2(this.x, this.y); }
+        if (keys['w'] || keys['ArrowUp']) moveY -= 1;
+        if (keys['s'] || keys['ArrowDown']) moveY += 1;
+        if (keys['a'] || keys['ArrowLeft']) moveX -= 1;
+        if (keys['d'] || keys['ArrowRight']) moveX += 1;
+
+        // Normalize vector so diagonals aren't faster
+        if (moveX !== 0 || moveY !== 0) {
+            const length = Math.hypot(moveX, moveY);
+            let nextX = this.x + (moveX / length) * this.speed;
+            let nextY = this.y + (moveY / length) * this.speed;
+
+            // FIX: Finite Map Boundaries check
+            nextX = Math.max(this.radius, Math.min(MAP_SIZE - this.radius, nextX));
+            nextY = Math.max(this.radius, Math.min(MAP_SIZE - this.radius, nextY));
+
+            // FIX: Wall Collisions (Check X & Y independently for smooth sliding)
+            if (!this.checkWallCollision(nextX, this.y)) this.x = nextX;
+            if (!this.checkWallCollision(this.x, nextY)) this.y = nextY;
         }
 
-        // --- PHASE 2: HOUSES & RECTANGLE WALLS ---
-        const houses = [
-            { x: 100, y: 80, w: 260, h: 200, door: { x: 230, y: 280, w: 40, h: 10 } },
-            { x: 420, y: 120, w: 300, h: 250, door: { x: 420, y: 220, w: 10, h: 40 } }
-        ];
+        // Camera Tracking Rotation Tracking
+        this.angle = Math.atan2(mouse.worldY - this.y, mouse.worldX - this.x);
 
-        let items = [];
-        let zombies = [];
-        let bullets = [];
-
-        // Spawn dynamic variables
-        function spawnItemPool() {
-            const types = [
-                { name: 'FOOD (7)', color: '#ffd32a', type: 'food' },
-                { name: 'MEDKIT (4)', color: '#ff5e57', type: 'medkit' },
-                { name: 'PISTOL (9mm)', color: '#0be881', type: 'gun' }
-            ];
-            houses.forEach(h => {
-                for (let i = 0; i < 2; i++) {
-                    items.push({
-                        pos: new Vector2(h.x + 30 + Math.random() * (h.w - 60), h.y + 30 + Math.random() * (h.h - 60)),
-                        meta: types[Math.floor(Math.random() * types.length)]
-                    });
+        // --- 2. AUTOMATED AI WEAPON EVALUATION ---
+        /*
+        // UNCOMMENT THIS BLOCK TO ENABLE AUTOMATED WEAPON PICKUP LOGIC
+        weaponDrops.forEach((drop, index) => {
+            const dist = Math.hypot(drop.x - this.x, drop.y - this.y);
+            // If overlapping with the item drop
+            if (dist < this.radius + drop.radius) {
+                const currentScore = this.getUtilityScore();
+                const newScore = drop.getUtilityScore();
+                
+                // AI Rule: Decide if the item has higher calculated potential utility
+                if (newScore > currentScore) {
+                    this.weapon = { dps: drop.dps, maxAmmo: drop.maxAmmo };
+                    weaponDrops.splice(index, 1); // Remove item from world
+                    updateUI();
                 }
-            });
-        }
-
-        function spawnZombies() {
-            for (let i = 0; i < 4; i++) {
-                zombies.push({
-                    pos: new Vector2(Math.random() * canvas.width, Math.random() * canvas.height),
-                    velocity: new Vector2((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2),
-                    wanderAngle: Math.random() * Math.PI,
-                    health: 30
-                });
             }
-            // Safeguard zombies spawning inside houses initially
-            zombies.forEach(z => {
-                houses.forEach(h => {
-                    if (z.pos.x > h.x && z.pos.x < h.x + h.w && z.pos.y > h.y && z.pos.y < h.y + h.h) {
-                        z.pos.x += 300;
-                    }
-                });
-            });
-        }
+        });
+        */
+    }
 
-        // --- AGENT INITIALIZATION ---
-        const agent = {
-            pos: new Vector2(230, 350),
-            velocity: new Vector2(0, 0),
-            acceleration: new Vector2(0, 0),
-            maxSpeed: 2.5,
-            maxForce: 0.15,
-            heading: 0,
-            fovAngle: Math.PI / 2.5,
-            fovRange: 180,
-            
-            // Vital Signs & States
-            health: 10,
-            energy: 20.0,
-            stamina: 18.00,
-            runMode: "FALSE",
-            bitten: "FALSE",
-            score: 0,
-            inventory: ['Empty', 'Empty', 'Empty', 'Empty', 'Empty'],
-            selectedSlot: 0,
-            wanderAngle: 0,
-            shootCooldown: 0
-        };
-
-        // --- COLLISION LOGIC ---
-        function handleWallCollisions(entity, lastPos) {
-            houses.forEach(h => {
-                // Check if inside bounding box of house shell walls
-                if (entity.pos.x > h.x && entity.pos.x < h.x + h.w && entity.pos.y > h.y && entity.pos.y < h.y + h.h) {
-                    // Check if navigating inside the explicit opening parameters of the door footprint
-                    let inDoorX = (entity.pos.x >= h.door.x && entity.pos.x <= h.door.x + h.door.w);
-                    let inDoorY = (entity.pos.y >= h.door.y && entity.pos.y <= h.door.y + h.door.h);
-                    
-                    if (!(inDoorX && inDoorY)) {
-                        // Slide along walls outside boundary limits by pulling object vector backward
-                        entity.pos.copy(lastPos);
-                    }
-                }
-            });
-        }
-
-        // --- PHASE 3: STEERING MECHANICS ---
-        function steerWander(entity) {
-            entity.wanderAngle += (Math.random() - 0.5) * 0.5;
-            let circleCenter = entity.velocity.copy().normalize().mult(40);
-            let displacement = new Vector2(Math.cos(entity.wanderAngle), Math.sin(entity.wanderAngle)).mult(12);
-            return circleCenter.add(displacement).limit(entity.maxForce);
-        }
-
-        function steerSeek(entity, targetPos) {
-            let desired = targetPos.copy().sub(entity.pos).normalize().mult(entity.maxSpeed);
-            return desired.sub(entity.velocity).limit(entity.maxForce);
-        }
-
-        function steerFlee(entity, targetPos) {
-            let desired = entity.pos.copy().sub(targetPos).normalize().mult(entity.maxSpeed);
-            return desired.sub(entity.velocity).limit(entity.maxForce);
-        }
-
-        function canSee(viewer, targetPos) {
-            let d = viewer.pos.dist(targetPos);
-            if (d > viewer.fovRange) return false;
-            let toTarget = targetPos.copy().sub(viewer.pos);
-            let angleToTarget = Math.atan2(toTarget.y, toTarget.x);
-            let diff = angleToTarget - viewer.heading;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            return Math.abs(diff) < viewer.fovAngle / 2;
-        }
-
-        // --- PHASE 4: BEHAVIOR TREE IMPLEMENTATION ---
-        class Node { tick() { return "FAILURE"; } }
-
-        class Selector extends Node {
-            constructor(children) { super(); this.children = children; }
-            tick() {
-                for (let child of this.children) {
-                    let res = child.tick();
-                    if (res !== "FAILURE") return res;
-                }
-                return "FAILURE";
+    checkWallCollision(nx, ny) {
+        for (let wall of walls) {
+            if (nx + this.radius > wall.x && nx - this.radius < wall.x + wall.w &&
+                ny + this.radius > wall.y && ny - this.radius < wall.y + wall.h) {
+                return true;
             }
         }
+        return false;
+    }
 
-        class Sequence extends Node {
-            constructor(children) { super(); this.children = children; }
-            tick() {
-                for (let child of this.children) {
-                    let res = child.tick();
-                    if (res !== "SUCCESS") return res;
-                }
-                return "SUCCESS";
-            }
-        }
+    // FIX: Raycasted Raycasting Engine for Obscured Viewcone
+    drawViewCone(camX, camY) {
+        const startAngle = this.angle - this.viewAngle / 2;
+        const angleStep = this.viewAngle / (this.numRays - 1);
+        const points = [[this.x - camX, this.y - camY]];
 
-        // Action Nodes
-        class CheckThreats extends Node {
-            tick() {
-                agent.perceivedZombie = zombies.find(z => canSee(agent, z.pos));
-                return agent.perceivedZombie ? "SUCCESS" : "FAILURE";
-            }
-        }
+        for (let i = 0; i < this.numRays; i++) {
+            const rayAngle = startAngle + i * angleStep;
+            let targetX = this.x + Math.cos(rayAngle) * this.viewRange;
+            let targetY = this.y + Math.sin(rayAngle) * this.viewRange;
 
-        class HandleCombat extends Node {
-            tick() {
-                let gunSlot = agent.inventory.findIndex(item => item.includes('PISTOL'));
-                if (gunSlot !== -1) {
-                    agent.selectedSlot = gunSlot;
-                    // Combat Attack Behavior: Stop and Face target to shoot
-                    agent.maxSpeed = 0;
-                    let targetZombie = agent.perceivedZombie;
-                    agent.heading = targetZombie.pos.copy().sub(agent.pos).heading();
-                    
-                    if (agent.shootCooldown <= 0) {
-                        bullets.push({
-                            pos: agent.pos.copy(),
-                            vel: targetZombie.pos.copy().sub(agent.pos).normalize().mult(8)
-                        });
-                        agent.shootCooldown = 25; // rate of fire delay
-                    }
-                    return "SUCCESS";
-                }
-                return "FAILURE";
-            }
-        }
+            // Check ray intersection against all walls
+            let closestT = 1; 
 
-        class FleeFromThreat extends Node {
-            tick() {
-                agent.maxSpeed = 4.2;
-                agent.runMode = "TRUE";
-                if (agent.stamina > 0) agent.stamina -= 0.08;
-                let force = steerFlee(agent, agent.perceivedZombie.pos);
-                agent.acceleration.add(force);
-                return "SUCCESS";
-            }
-        }
-
-        class ManageVitals extends Node {
-            tick() {
-                if (agent.health < 4) {
-                    let medIndex = agent.inventory.findIndex(i => i.includes('MEDKIT'));
-                    if (medIndex !== -1) {
-                        agent.health = Math.min(10, agent.health + 4);
-                        agent.inventory[medIndex] = 'Empty';
-                        return "SUCCESS";
-                    }
-                }
-                if (agent.energy < 6) {
-                    let foodIndex = agent.inventory.findIndex(i => i.includes('FOOD'));
-                    if (foodIndex !== -1) {
-                        agent.energy = Math.min(20, agent.energy + 8);
-                        agent.inventory[foodIndex] = 'Empty';
-                        return "SUCCESS";
-                    }
-                }
-                return "FAILURE";
-            }
-        }
-
-        class ScavengeItems extends Node {
-            tick() {
-                let closeItem = items.find(i => agent.pos.dist(i.pos) < 200);
-                if (closeItem) {
-                    agent.maxSpeed = 2.5;
-                    agent.runMode = "FALSE";
-                    let force = steerSeek(agent, closeItem.pos);
-                    agent.acceleration.add(force);
-                    return "SUCCESS";
-                }
-                return "FAILURE";
-            }
-        }
-
-        class DefaultWander extends Node {
-            tick() {
-                agent.maxSpeed = 2.2;
-                agent.runMode = "FALSE";
-                if (agent.stamina < 18) agent.stamina += 0.04;
-                let force = steerWander(agent);
-                agent.acceleration.add(force);
-                return "SUCCESS";
-            }
-        }
-
-        // Construct Tree Object
-        const behaviorTree = new Selector([
-            new Sequence([new CheckThreats(), new Selector([new HandleCombat(), new FleeFromThreat()])]),
-            new ManageVitals(),
-            new ScavengeItems(),
-            new DefaultWander()
-        ]);
-
-        // --- LOOP PROCESSING LOGIC ---
-        function update() {
-            // Decay metrics over frame duration
-            if (agent.energy > 0) agent.energy -= 0.004;
-            if (agent.energy <= 0) agent.health -= 0.005; // Starvation kills
-            if (agent.shootCooldown > 0) agent.shootCooldown--;
-
-            let lastAgentPos = agent.pos.copy();
-
-            // Execute Behavior Tree Decisions
-            behaviorTree.tick();
-
-            // Run Physics integration
-            agent.velocity.add(agent.acceleration).limit(agent.maxSpeed);
-            agent.pos.add(agent.velocity);
-            agent.acceleration.mult(0);
-            if (agent.velocity.mag() > 0.1 && agent.maxSpeed > 0) {
-                agent.heading = agent.velocity.heading();
-            }
-
-            handleWallCollisions(agent, lastAgentPos);
-
-            // Handle out-of-bounds containment wrapping
-            if (agent.pos.x < 0) agent.pos.x = canvas.width; if (agent.pos.x > canvas.width) agent.pos.x = 0;
-            if (agent.pos.y < 0) agent.pos.y = canvas.height; if (agent.pos.y > canvas.height) agent.pos.y = 0;
-
-            // Bullets movement loop processing
-            for (let b = bullets.length - 1; b >= 0; b--) {
-                bullets[b].pos.add(bullets[b].vel);
-                let hit = false;
-                for (let z of zombies) {
-                    if (bullets[b].pos.dist(z.pos) < 14) {
-                        z.health -= 15;
-                        hit = true; break;
-                    }
-                }
-                if (hit || bullets[b].pos.x < 0 || bullets[b].pos.x > canvas.width || bullets[b].pos.y < 0 || bullets[b].pos.y > canvas.height) {
-                    bullets.splice(b, 1);
+            for (let wall of walls) {
+                const hitT = checkRayRectIntersection(this.x, this.y, targetX, targetY, wall);
+                if (hitT !== null && hitT < closestT) {
+                    closestT = hitT;
                 }
             }
 
-            // Zombies movement & dynamic hunting loops
-            for (let z = zombies.length - 1; z >= 0; z--) {
-                let zombie = zombies[z];
-                if (zombie.health <= 0) {
-                    zombies.splice(z, 1);
-                    agent.score += 50;
-                    continue;
-                }
-
-                let lastZPos = zombie.pos.copy();
-                let zForce;
-                if (zombie.pos.dist(agent.pos) < 150) {
-                    zForce = steerSeek(zombie, agent.pos); // Agro targeting player
-                } else {
-                    zForce = steerWander(zombie);
-                }
-                zombie.velocity.add(zForce).limit(1.2);
-                zombie.pos.add(zombie.velocity);
-                handleWallCollisions(zombie, lastZPos);
-
-                // Bite damage detection
-                if (zombie.pos.dist(agent.pos) < 15) {
-                    agent.health = Math.max(0, agent.health - 0.05);
-                    agent.bitten = "TRUE";
-                } else {
-                    agent.bitten = "FALSE";
-                }
-            }
-
-            // Pickup processing loop mechanics
-            for (let i = items.length - 1; i >= 0; i--) {
-                if (agent.pos.dist(items[i].pos) < 16) {
-                    for (let s = 0; s < 5; s++) {
-                        if (agent.inventory[s] === 'Empty') {
-                            agent.inventory[s] = items[i].meta.name;
-                            items.splice(i, 1);
-                            agent.score += 15;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // Respawn pools when empty
-            if (items.length === 0) spawnItemPool();
-            if (zombies.length === 0) spawnZombies();
+            // Calculate final ray point dynamically reduced by walls
+            const finalX = this.x + (targetX - this.x) * closestT;
+            const finalY = this.y + (targetY - this.y) * closestT;
+            points.push([finalX - camX, finalY - camY]);
         }
 
-        // --- RENDER FUNCTION ---
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Draw Houses
-            ctx.strokeStyle = '#5a9e5a';
-            ctx.lineWidth = 4;
-            houses.forEach(h => {
-                ctx.strokeRect(h.x, h.y, h.w, h.h);
-                ctx.fillStyle = '#3d3d3d';
-                // Cutout door representation visualizer masking clear path lines
-                ctx.fillRect(h.door.x - 2, h.door.y - 2, h.door.w + 4, h.door.h + 4);
-            });
-
-            // Draw Items
-            items.forEach(i => {
-                ctx.fillStyle = i.meta.color;
-                ctx.beginPath(); ctx.arc(i.pos.x, i.pos.y, 6, 0, Math.PI * 2); ctx.fill();
-            });
-
-            // Draw Bullets
-            ctx.fillStyle = '#f5cd79';
-            bullets.forEach(b => {
-                ctx.beginPath(); ctx.arc(b.pos.x, b.pos.y, 3, 0, Math.PI * 2); ctx.fill();
-            });
-
-            // Draw Zombies
-            zombies.forEach(z => {
-                ctx.fillStyle = '#b33939';
-                ctx.beginPath(); ctx.arc(z.pos.x, z.pos.y, 10, 0, Math.PI * 2); ctx.fill();
-                let heading = z.velocity.heading();
-                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.moveTo(z.pos.x, z.pos.y);
-                ctx.lineTo(z.pos.x + Math.cos(heading)*12, z.pos.y + Math.sin(heading)*12); ctx.stroke();
-            });
-
-            // Draw Agent Vision Cone Field
-            ctx.fillStyle = 'rgba(212, 175, 55, 0.12)';
-            ctx.strokeStyle = 'rgba(212, 175, 55, 0.3)';
-            ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(agent.pos.x, agent.pos.y);
-            ctx.arc(agent.pos.x, agent.pos.y, agent.fovRange, agent.heading - agent.fovAngle / 2, agent.heading + agent.fovAngle / 2);
-            ctx.closePath(); ctx.fill(); ctx.stroke();
-
-            // Blue outer selection ring
-            ctx.strokeStyle = '#341f97'; ctx.setLineDash([4, 4]);
-            ctx.beginPath(); ctx.arc(agent.pos.x, agent.pos.y, 22, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-
-            // Green Agent body capsule shape core center
-            ctx.fillStyle = agent.bitten === "TRUE" ? '#ff3838' : '#218c74';
-            ctx.beginPath(); ctx.arc(agent.pos.x, agent.pos.y, 10, 0, Math.PI * 2); ctx.fill();
-
-            // Heading Vector line tracking view front direction
-            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.moveTo(agent.pos.x, agent.pos.y);
-            ctx.lineTo(agent.pos.x + Math.cos(agent.heading) * 14, agent.pos.y + Math.sin(agent.heading) * 14);
-            ctx.stroke();
+        // Render visibility polygon context
+        ctx.fillStyle = 'rgba(255, 255, 150, 0.15)';
+        ctx.beginPath();
+        ctx.moveTo(points[0][0], points[0][1]);
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i][0], points[i][1]);
         }
+        ctx.closePath();
+        ctx.fill();
+    }
 
-        function updateUI() {
-            document.getElementById('ui-score').innerText = agent.score;
-            document.getElementById('ui-health').innerText = Math.ceil(agent.health);
-            document.getElementById('ui-energy').innerText = agent.energy.toFixed(1);
-            document.getElementById('ui-stamina').innerText = agent.stamina.toFixed(2);
-            document.getElementById('ui-runmode').innerText = agent.runMode;
-            document.getElementById('ui-speed').innerText = agent.velocity.mag().toFixed(2);
-            document.getElementById('ui-maxspeed').innerText = agent.maxSpeed.toFixed(2);
-            document.getElementById('ui-bitten').innerText = agent.bitten;
-            document.getElementById('ui-selected').innerText = agent.selectedSlot;
-            for(let i=0; i<5; i++) {
-                document.getElementById(`ui-slot${i}`).innerText = agent.inventory[i];
-                document.getElementById(`ui-slot${i}`).style.color = (i === agent.selectedSlot) ? '#55ff55' : '#aaaaaa';
-            }
-        }
+    draw(camX, camY) {
+        // Base Character Rendering
+        ctx.save();
+        ctx.translate(this.x - camX, this.y - camY);
+        ctx.rotate(this.angle);
+        
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#3182ce';
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#2b6cb0';
+        ctx.stroke();
 
-        // Initial setup calls
-        spawnItemPool();
-        spawnZombies();
+        // Direction Pointer / Gun barrel representation
+        ctx.fillStyle = '#1a365d';
+        ctx.fillRect(0, -4, 22, 8);
+        ctx.restore();
+    }
+}
 
-        function mainLoop() {
-            if (agent.health > 0) {
-                update();
-                draw();
-                updateUI();
-                requestAnimationFrame(mainLoop);
+// --- RAY INTERSECTION UTILITY ---
+function checkRayRectIntersection(rx1, ry1, rx2, ry2, rect) {
+    // Standard Liang-Barsky parametric line clipping algorithm mapping down closest point of intersection
+    let t0 = 0, t1 = 1;
+    const dx = rx2 - rx1;
+    const dy = ry2 - ry1;
+
+    const edges = [
+        { p: -dx, q: rx1 - rect.x },           // Left
+        { p: dx, q: rect.x + rect.w - rx1 },   // Right
+        { p: -dy, q: ry1 - rect.y },           // Top
+        { p: dy, q: rect.y + rect.h - ry1 }    // Bottom
+    ];
+
+    for (let edge of edges) {
+        if (edge.p === 0) {
+            if (edge.q < 0) return null;
+        } else {
+            const t = edge.q / edge.p;
+            if (edge.p < 0) {
+                if (t > t1) return null;
+                if (t > t0) t0 = t;
             } else {
-                ctx.fillStyle = "rgba(0,0,0,0.8)";
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = "#ff3838";
-                ctx.font = "30px 'Lucida Console'";
-                ctx.fillText("AGENT DEAD", canvas.width/2 - 90, canvas.height/2);
+                if (t < t0) return null;
+                if (t < t1) t1 = t;
             }
         }
-        mainLoop();
-    </script>
+    }
+    return t0;
+}
+
+// --- INITIALIZE SCENE MAP SYSTEM ---
+const hero = new Hero(100, 100);
+const walls = [
+    // House 1 Bounds
+    new Wall(300, 200, 400, 200),
+    new Wall(300, 400, 100, 200),
+    new Wall(600, 400, 100, 200),
+    // House 2 Bounds
+    new Wall(900, 600, 500, 400),
+    // Map Boundaries decorative assets
+    new Wall(0, 0, MAP_SIZE, 20),
+    new Wall(0, 0, 20, MAP_SIZE),
+    new Wall(0, MAP_SIZE - 20, MAP_SIZE, 20),
+    new Wall(MAP_SIZE - 20, 0, 20, MAP_SIZE)
+];
+
+const weaponDrops = [
+    new WeaponDrop(500, 150, 4.0, 1), // Shotgun burst archetype (Score: 4.0)
+    new WeaponDrop(800, 500, 2.0, 8)  // Carbine archetype (Score: 16.0 -> Better Choice)
+];
+
+function updateUI() {
+    document.getElementById('ui-weapon').innerText = `DPS: ${hero.weapon.dps}, Max Ammo: ${hero.weapon.maxAmmo}`;
+    document.getElementById('ui-score').innerText = hero.getUtilityScore().toFixed(1);
+}
+
+// --- EVENT LISTENERS ---
+window.addEventListener('keydown', (e) => keys[e.key] = true);
+window.addEventListener('keyup', (e) => keys[e.key] = false);
+
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+});
+
+// --- CORE ENGINE LOOP ---
+function loop() {
+    hero.update();
+
+    // FIXED CAMERA MECHANIC: Locking the viewport translation matrix strictly around the hero tracking position
+    let camX = hero.x - VIEW_WIDTH / 2;
+    let camY = hero.y - VIEW_HEIGHT / 2;
+
+    // Constrain camera position to total boundaries of the 5x5 fixed environment
+    camX = Math.max(0, Math.min(MAP_SIZE - VIEW_WIDTH, camX));
+    camY = Math.max(0, Math.min(MAP_SIZE - VIEW_HEIGHT, camY));
+
+    // Dynamic mouse conversion to world coords based on calculated camera configuration 
+    mouse.worldX = mouse.x + camX;
+    mouse.worldY = mouse.y + camY;
+
+    // Clear Screen Context Frame
+    ctx.clearRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+
+    // Draw grid environment floor indicators for space context
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 1;
+    for(let x = 0; x < MAP_SIZE; x += 100) {
+        ctx.beginPath(); ctx.moveTo(x - camX, 0); ctx.lineTo(x - camX, MAP_SIZE); ctx.stroke();
+    }
+    for(let y = 0; y < MAP_SIZE; y += 100) {
+        ctx.beginPath(); ctx.moveTo(0, y - camY); ctx.lineTo(MAP_SIZE, y - camY); ctx.stroke();
+    }
+
+    // Render operations
+    weaponDrops.forEach(drop => drop.draw(camX, camY));
+    hero.drawViewCone(camX, camY);
+    walls.forEach(wall => wall.draw(camX, camY));
+    hero.draw(camX, camY);
+
+    requestAnimationFrame(loop);
+}
+
+// Initialize Loop
+loop();
+</script>
 </body>
 </html>
