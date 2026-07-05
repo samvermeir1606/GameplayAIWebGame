@@ -2,59 +2,108 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Top-Down Tactical Engine</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tactical Top-Down Engine</title>
     <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
         body {
             margin: 0;
             padding: 0;
-            background-color: #111;
-            color: #fff;
-            font-family: sans-serif;
+            background-color: #0d0e12;
+            color: #e2e8f0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            position: relative;
             height: 100vh;
+            width: 100vw;
         }
         canvas {
-            border: 4px solid #444;
-            box-shadow: 0 0 20px rgba(0,0,0,0.8);
-            background-color: #1a1a1a;
+            display: block;
+            width: 100%;
+            height: 100%;
+            background-color: #15171e;
         }
         #ui-layer {
             position: absolute;
-            top: 20px;
-            left: 20px;
+            top: 16px;
+            left: 16px;
             pointer-events: none;
-            text-shadow: 2px 2px 2px #000;
+            font-size: 13px;
             font-family: monospace;
-            font-size: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            background: rgba(21, 23, 30, 0.85);
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #2d313f;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            max-width: 280px;
+        }
+        .ui-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+        }
+        .ui-label { color: #718096; }
+        .ui-value { color: #f6ad55; font-weight: bold; }
+        #mobile-instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            pointer-events: none;
+            font-size: 11px;
+            text-align: center;
+            color: #a0aec0;
+            background: rgba(21, 23, 30, 0.75);
+            padding: 6px 12px;
+            border-radius: 20px;
+            width: fit-content;
+            max-width: 90%;
         }
     </style>
 </head>
 <body>
 
     <div id="ui-layer">
-        <div>WEAPON: <span id="ui-weapon">Pistol (DPS: 1.5, Ammo: 5)</span></div>
-        <div>SCORE: <span id="ui-score">7.5</span></div>
-        <div>BOUNDS: 2000x2000 (Fixed Map)</div>
+        <div class="ui-row"><span class="ui-label">WEAPON:</span> <span id="ui-weapon" class="ui-value">Pistol (DPS: 1.5, Ammo: 5)</span></div>
+        <div class="ui-row"><span class="ui-label">AI SCORE:</span> <span id="ui-score" class="ui-value">7.5</span></div>
+        <div class="ui-row"><span class="ui-label">MAP BOUNDS:</span> <span style="color: #63b3ed;">2000 x 2000</span></div>
     </div>
 
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="mobile-instructions">
+        Desktop: WASD/Arrows to Move • Mouse to Aim<br>
+        Mobile: Tap & Hold anywhere to Move & Aim
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// --- CONSTANTS & CONFIG ---
-const MAP_SIZE = 2000; // 5x5 layout of 400x400 viewports
-const VIEW_WIDTH = canvas.width;
-const VIEW_HEIGHT = canvas.height;
+// --- FIXED MAP SYSTEM CONFIG ---
+const MAP_SIZE = 2000; 
+let VIEW_WIDTH = window.innerWidth;
+let VIEW_HEIGHT = window.innerHeight;
 
-// --- GAME STATE ---
+function resizeCanvas() {
+    VIEW_WIDTH = window.innerWidth;
+    VIEW_HEIGHT = window.innerHeight;
+    canvas.width = VIEW_WIDTH;
+    canvas.height = VIEW_HEIGHT;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// --- GAME INPUTS ---
 const keys = {};
-const mouse = { x: 0, y: 0, worldX: 0, worldY: 0 };
+const targetInput = { x: 0, y: 0, worldX: 0, worldY: 0, isActive: false };
 
 class Wall {
     constructor(x, y, w, h) {
@@ -64,10 +113,11 @@ class Wall {
         this.h = h;
     }
     draw(camX, camY) {
-        ctx.fillStyle = '#4a5568';
+        // Flat schematic wall styling
+        ctx.fillStyle = '#2d313f';
         ctx.fillRect(this.x - camX, this.y - camY, this.w, this.h);
-        ctx.strokeStyle = '#2d3748';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#4a5168';
+        ctx.lineWidth = 1.5;
         ctx.strokeRect(this.x - camX, this.y - camY, this.w, this.h);
     }
 }
@@ -86,8 +136,11 @@ class WeaponDrop {
     draw(camX, camY) {
         ctx.beginPath();
         ctx.arc(this.x - camX, this.y - camY, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#ecc94b';
+        ctx.fillStyle = '#ed8936';
         ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
         ctx.closePath();
     }
 }
@@ -96,17 +149,15 @@ class Hero {
     constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.radius = 16;
-        this.speed = 4;
+        this.radius = 15;
+        this.speed = 4.5;
         this.angle = 0;
         
-        // Initial Weapon Setup
         this.weapon = { dps: 1.5, maxAmmo: 5 };
         
-        // Raycasting configurations
-        this.viewRange = 350;
+        this.viewRange = 380; 
         this.viewAngle = Math.PI / 3; // 60 degrees
-        this.numRays = 25;
+        this.numRays = 25; // 25 structural sight lines
     }
 
     getUtilityScore() {
@@ -114,52 +165,65 @@ class Hero {
     }
 
     update() {
-        // --- 1. MOVEMENT & INPUT HANDLING ---
         let moveX = 0;
         let moveY = 0;
 
-        if (keys['w'] || keys['ArrowUp']) moveY -= 1;
-        if (keys['s'] || keys['ArrowDown']) moveY += 1;
-        if (keys['a'] || keys['ArrowLeft']) moveX -= 1;
-        if (keys['d'] || keys['ArrowRight']) moveX += 1;
+        if (keys['w'] || keys['ArrowUp'] || keys['W']) moveY -= 1;
+        if (keys['s'] || keys['ArrowDown'] || keys['S']) moveY += 1;
+        if (keys['a'] || keys['ArrowLeft'] || keys['A']) moveX -= 1;
+        if (keys['d'] || keys['ArrowRight'] || keys['D']) moveX += 1;
 
-        // Normalize vector so diagonals aren't faster
         if (moveX !== 0 || moveY !== 0) {
             const length = Math.hypot(moveX, moveY);
             let nextX = this.x + (moveX / length) * this.speed;
             let nextY = this.y + (moveY / length) * this.speed;
 
-            // FIX: Finite Map Boundaries check
-            nextX = Math.max(this.radius, Math.min(MAP_SIZE - this.radius, nextX));
-            nextY = Math.max(this.radius, Math.min(MAP_SIZE - this.radius, nextY));
+            this.executeMovement(nextX, nextY);
+            this.angle = Math.atan2(targetInput.worldY - this.y, targetInput.worldX - this.x);
+        } else if (targetInput.isActive) {
+            const dx = targetInput.worldX - this.x;
+            const dy = targetInput.worldY - this.y;
+            const dist = Math.hypot(dx, dy);
 
-            // FIX: Wall Collisions (Check X & Y independently for smooth sliding)
-            if (!this.checkWallCollision(nextX, this.y)) this.x = nextX;
-            if (!this.checkWallCollision(this.x, nextY)) this.y = nextY;
+            this.angle = Math.atan2(dy, dx);
+
+            // FIX: Smooth deceleration zone to completely solve overshooting/jittering
+            if (dist > this.speed) {
+                let nextX = this.x + Math.cos(this.angle) * this.speed;
+                let nextY = this.y + Math.sin(this.angle) * this.speed;
+                this.executeMovement(nextX, nextY);
+            } else if (dist > 0.5) {
+                this.executeMovement(targetInput.worldX, targetInput.worldY);
+            }
         }
 
-        // Camera Tracking Rotation Tracking
-        this.angle = Math.atan2(mouse.worldY - this.y, mouse.worldX - this.x);
-
-        // --- 2. AUTOMATED AI WEAPON EVALUATION ---
+        // --- PLACE YOUR CUSTOM AI WEAPON EVALUATION HERE ---
         /*
-        // UNCOMMENT THIS BLOCK TO ENABLE AUTOMATED WEAPON PICKUP LOGIC
         weaponDrops.forEach((drop, index) => {
             const dist = Math.hypot(drop.x - this.x, drop.y - this.y);
-            // If overlapping with the item drop
             if (dist < this.radius + drop.radius) {
                 const currentScore = this.getUtilityScore();
                 const newScore = drop.getUtilityScore();
                 
-                // AI Rule: Decide if the item has higher calculated potential utility
+                // Write your conditional evaluation logic here:
                 if (newScore > currentScore) {
                     this.weapon = { dps: drop.dps, maxAmmo: drop.maxAmmo };
-                    weaponDrops.splice(index, 1); // Remove item from world
+                    weaponDrops.splice(index, 1);
                     updateUI();
                 }
             }
         });
         */
+    }
+
+    executeMovement(nx, ny) {
+        // FIX: Enforce hard map boundaries
+        nx = Math.max(this.radius, Math.min(MAP_SIZE - this.radius, nx));
+        ny = Math.max(this.radius, Math.min(MAP_SIZE - this.radius, ny));
+
+        // FIX: Sliding axis collision logic (Prevents passing through walls)
+        if (!this.checkWallCollision(nx, this.y)) this.x = nx;
+        if (!this.checkWallCollision(this.x, ny)) this.y = ny;
     }
 
     checkWallCollision(nx, ny) {
@@ -172,7 +236,7 @@ class Hero {
         return false;
     }
 
-    // FIX: Raycasted Raycasting Engine for Obscured Viewcone
+    // FIX: 25-Raycast Occlusion Viewcone
     drawViewCone(camX, camY) {
         const startAngle = this.angle - this.viewAngle / 2;
         const angleStep = this.viewAngle / (this.numRays - 1);
@@ -183,7 +247,6 @@ class Hero {
             let targetX = this.x + Math.cos(rayAngle) * this.viewRange;
             let targetY = this.y + Math.sin(rayAngle) * this.viewRange;
 
-            // Check ray intersection against all walls
             let closestT = 1; 
 
             for (let wall of walls) {
@@ -193,14 +256,13 @@ class Hero {
                 }
             }
 
-            // Calculate final ray point dynamically reduced by walls
             const finalX = this.x + (targetX - this.x) * closestT;
             const finalY = this.y + (targetY - this.y) * closestT;
             points.push([finalX - camX, finalY - camY]);
         }
 
-        // Render visibility polygon context
-        ctx.fillStyle = 'rgba(255, 255, 150, 0.15)';
+        // Clean tactical visual overlay for visibility cone
+        ctx.fillStyle = 'rgba(246, 173, 85, 0.08)';
         ctx.beginPath();
         ctx.moveTo(points[0][0], points[0][1]);
         for (let i = 1; i < points.length; i++) {
@@ -211,38 +273,37 @@ class Hero {
     }
 
     draw(camX, camY) {
-        // Base Character Rendering
         ctx.save();
         ctx.translate(this.x - camX, this.y - camY);
         ctx.rotate(this.angle);
         
+        // Character Body Base Color
         ctx.beginPath();
         ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = '#3182ce';
         ctx.fill();
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = '#2b6cb0';
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#63b3ed';
         ctx.stroke();
 
-        // Direction Pointer / Gun barrel representation
-        ctx.fillStyle = '#1a365d';
-        ctx.fillRect(0, -4, 22, 8);
+        // Direction Weapon Indicator
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, -3, 20, 6);
         ctx.restore();
     }
 }
 
-// --- RAY INTERSECTION UTILITY ---
+// Liang-Barsky line clipping algorithm for ray intersections
 function checkRayRectIntersection(rx1, ry1, rx2, ry2, rect) {
-    // Standard Liang-Barsky parametric line clipping algorithm mapping down closest point of intersection
     let t0 = 0, t1 = 1;
     const dx = rx2 - rx1;
     const dy = ry2 - ry1;
 
     const edges = [
-        { p: -dx, q: rx1 - rect.x },           // Left
-        { p: dx, q: rect.x + rect.w - rx1 },   // Right
-        { p: -dy, q: ry1 - rect.y },           // Top
-        { p: dy, q: rect.y + rect.h - ry1 }    // Bottom
+        { p: -dx, q: rx1 - rect.x },
+        { p: dx, q: rect.x + rect.w - rx1 },
+        { p: -dy, q: ry1 - rect.y },
+        { p: dy, q: rect.y + rect.h - ry1 }
     ];
 
     for (let edge of edges) {
@@ -262,16 +323,16 @@ function checkRayRectIntersection(rx1, ry1, rx2, ry2, rect) {
     return t0;
 }
 
-// --- INITIALIZE SCENE MAP SYSTEM ---
-const hero = new Hero(100, 100);
+// --- WORLD POPULATION ---
+const hero = new Hero(150, 150);
 const walls = [
-    // House 1 Bounds
-    new Wall(300, 200, 400, 200),
-    new Wall(300, 400, 100, 200),
-    new Wall(600, 400, 100, 200),
-    // House 2 Bounds
-    new Wall(900, 600, 500, 400),
-    // Map Boundaries decorative assets
+    // Houses/Obstacles layout
+    new Wall(350, 250, 300, 200),
+    new Wall(800, 150, 400, 400),
+    new Wall(200, 700, 450, 250),
+    new Wall(900, 800, 500, 350),
+    new Wall(400, 1300, 600, 250),
+    // Hard perimeter map boundaries
     new Wall(0, 0, MAP_SIZE, 20),
     new Wall(0, 0, 20, MAP_SIZE),
     new Wall(0, MAP_SIZE - 20, MAP_SIZE, 20),
@@ -279,55 +340,68 @@ const walls = [
 ];
 
 const weaponDrops = [
-    new WeaponDrop(500, 150, 4.0, 1), // Shotgun burst archetype (Score: 4.0)
-    new WeaponDrop(800, 500, 2.0, 8)  // Carbine archetype (Score: 16.0 -> Better Choice)
+    new WeaponDrop(500, 150, 4.0, 1), 
+    new WeaponDrop(1000, 300, 2.0, 8),
+    new WeaponDrop(300, 850, 1.5, 12)
 ];
 
 function updateUI() {
-    document.getElementById('ui-weapon').innerText = `DPS: ${hero.weapon.dps}, Max Ammo: ${hero.weapon.maxAmmo}`;
+    document.getElementById('ui-weapon').innerText = `DPS: ${hero.weapon.dps}, Ammo: ${hero.weapon.maxAmmo}`;
     document.getElementById('ui-score').innerText = hero.getUtilityScore().toFixed(1);
 }
 
-// --- EVENT LISTENERS ---
+// --- CONTROLS HOOKS ---
 window.addEventListener('keydown', (e) => keys[e.key] = true);
 window.addEventListener('keyup', (e) => keys[e.key] = false);
 
-canvas.addEventListener('mousemove', (e) => {
+function updatePointer(clientX, clientY, active) {
     const rect = canvas.getBoundingClientRect();
-    mouse.x = e.clientX - rect.left;
-    mouse.y = e.clientY - rect.top;
-});
+    targetInput.x = clientX - rect.left;
+    targetInput.y = clientY - rect.top;
+    targetInput.isActive = active;
+}
 
-// --- CORE ENGINE LOOP ---
+canvas.addEventListener('mousemove', (e) => updatePointer(e.clientX, e.clientY, targetInput.isActive));
+canvas.addEventListener('mousedown', (e) => updatePointer(e.clientX, e.clientY, true));
+canvas.addEventListener('mouseup', () => targetInput.isActive = false);
+
+canvas.addEventListener('touchstart', (e) => {
+    if(e.touches.length > 0) updatePointer(e.touches[0].clientX, e.touches[0].clientY, true);
+}, {passive: true});
+canvas.addEventListener('touchmove', (e) => {
+    if(e.touches.length > 0) updatePointer(e.touches[0].clientX, e.touches[0].clientY, true);
+}, {passive: true});
+canvas.addEventListener('touchend', () => targetInput.isActive = false);
+
+// --- RUN LOOP ---
 function loop() {
-    hero.update();
-
-    // FIXED CAMERA MECHANIC: Locking the viewport translation matrix strictly around the hero tracking position
+    // FIX: Camera tightly tracking hero center
     let camX = hero.x - VIEW_WIDTH / 2;
     let camY = hero.y - VIEW_HEIGHT / 2;
 
-    // Constrain camera position to total boundaries of the 5x5 fixed environment
+    // Constrain camera system to finite arena bounds
     camX = Math.max(0, Math.min(MAP_SIZE - VIEW_WIDTH, camX));
     camY = Math.max(0, Math.min(MAP_SIZE - VIEW_HEIGHT, camY));
 
-    // Dynamic mouse conversion to world coords based on calculated camera configuration 
-    mouse.worldX = mouse.x + camX;
-    mouse.worldY = mouse.y + camY;
+    targetInput.worldX = targetInput.x + camX;
+    targetInput.worldY = targetInput.y + camY;
 
-    // Clear Screen Context Frame
+    hero.update();
+
     ctx.clearRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
 
-    // Draw grid environment floor indicators for space context
-    ctx.strokeStyle = '#222';
+    // Schematic Grid Lines Drawing
+    ctx.strokeStyle = '#1b1e26';
     ctx.lineWidth = 1;
-    for(let x = 0; x < MAP_SIZE; x += 100) {
+    const step = 100;
+    for(let x = 0; x < MAP_SIZE; x += step) {
         ctx.beginPath(); ctx.moveTo(x - camX, 0); ctx.lineTo(x - camX, MAP_SIZE); ctx.stroke();
     }
-    for(let y = 0; y < MAP_SIZE; y += 100) {
+    for(let y = 0; y < MAP_SIZE; y += step) {
         ctx.beginPath(); ctx.moveTo(0, y - camY); ctx.lineTo(MAP_SIZE, y - camY); ctx.stroke();
     }
 
-    // Render operations
+    // Drawing Pipeline Order
     weaponDrops.forEach(drop => drop.draw(camX, camY));
     hero.drawViewCone(camX, camY);
     walls.forEach(wall => wall.draw(camX, camY));
@@ -336,7 +410,6 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
-// Initialize Loop
 loop();
 </script>
 </body>
