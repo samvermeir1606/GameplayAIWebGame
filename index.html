@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Tactical Top-Down Engine</title>
+    <title>Tactical AI Simulation</title>
     <style>
         * {
             box-sizing: border-box;
@@ -13,9 +13,9 @@
         body {
             margin: 0;
             padding: 0;
-            background-color: #0d0e12;
-            color: #e2e8f0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #050505;
+            color: #ffffff;
+            font-family: monospace;
             overflow: hidden;
             position: relative;
             height: 100vh;
@@ -25,60 +25,38 @@
             display: block;
             width: 100%;
             height: 100%;
-            background-color: #15171e;
+            background-color: #0a0a0a;
         }
         #ui-layer {
             position: absolute;
-            top: 16px;
-            left: 16px;
+            top: 15px;
+            left: 15px;
             pointer-events: none;
-            font-size: 13px;
-            font-family: monospace;
+            font-size: 14px;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #333;
             display: flex;
             flex-direction: column;
-            gap: 6px;
-            background: rgba(21, 23, 30, 0.85);
-            padding: 12px;
-            border-radius: 6px;
-            border: 1px solid #2d313f;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            max-width: 280px;
+            gap: 5px;
+            min-width: 260px;
         }
         .ui-row {
             display: flex;
             justify-content: space-between;
-            gap: 20px;
         }
-        .ui-label { color: #718096; }
-        .ui-value { color: #f6ad55; font-weight: bold; }
-        #mobile-instructions {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            pointer-events: none;
-            font-size: 11px;
-            text-align: center;
-            color: #a0aec0;
-            background: rgba(21, 23, 30, 0.75);
-            padding: 6px 12px;
-            border-radius: 20px;
-            width: fit-content;
-            max-width: 90%;
-        }
+        .highlight { color: #00ffcc; font-weight: bold; }
+        .danger { color: #ff3333; }
     </style>
 </head>
 <body>
 
     <div id="ui-layer">
-        <div class="ui-row"><span class="ui-label">WEAPON:</span> <span id="ui-weapon" class="ui-value">Pistol (DPS: 1.5, Ammo: 5)</span></div>
-        <div class="ui-row"><span class="ui-label">AI SCORE:</span> <span id="ui-score" class="ui-value">7.5</span></div>
-        <div class="ui-row"><span class="ui-label">MAP BOUNDS:</span> <span style="color: #63b3ed;">2000 x 2000</span></div>
-    </div>
-
-    <div id="mobile-instructions">
-        Desktop: WASD/Arrows to Move • Mouse to Aim<br>
-        Mobile: Tap & Hold anywhere to Move & Aim
+        <div class="ui-row"><span>HERO MODE:</span> <span class="highlight">AUTONOMOUS AI</span></div>
+        <div class="ui-row"><span>WEAPON:</span> <span id="ui-weapon" style="color: #ffcc00;">Pistol (DPS: 1.5, Ammo: 5)</span></div>
+        <div class="ui-row"><span>WEAPON SCORE:</span> <span id="ui-score" class="highlight">7.5</span></div>
+        <div class="ui-row"><span>ZOMBIES ALIVE:</span> <span id="ui-zombies" class="danger">0</span></div>
     </div>
 
     <canvas id="gameCanvas"></canvas>
@@ -87,8 +65,8 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// --- FIXED MAP SYSTEM CONFIG ---
-const MAP_SIZE = 2000; 
+// --- GAME SYSTEM CONFIG ---
+const MAP_SIZE = 2000; // 5x5 Grid representation
 let VIEW_WIDTH = window.innerWidth;
 let VIEW_HEIGHT = window.innerHeight;
 
@@ -101,10 +79,6 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-// --- GAME INPUTS ---
-const keys = {};
-const targetInput = { x: 0, y: 0, worldX: 0, worldY: 0, isActive: false };
-
 class Wall {
     constructor(x, y, w, h) {
         this.x = x;
@@ -113,35 +87,65 @@ class Wall {
         this.h = h;
     }
     draw(camX, camY) {
-        // Flat schematic wall styling
-        ctx.fillStyle = '#2d313f';
+        ctx.fillStyle = '#222226';
         ctx.fillRect(this.x - camX, this.y - camY, this.w, this.h);
-        ctx.strokeStyle = '#4a5168';
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#44444a';
+        ctx.lineWidth = 2;
         ctx.strokeRect(this.x - camX, this.y - camY, this.w, this.h);
     }
 }
 
 class WeaponDrop {
-    constructor(x, y, dps, maxAmmo) {
+    constructor(x, y, dps, maxAmmo, name) {
         this.x = x;
         this.y = y;
-        this.radius = 10;
+        this.w = 16;
+        this.h = 16;
         this.dps = dps;
         this.maxAmmo = maxAmmo;
+        this.name = name;
     }
     getUtilityScore() {
         return this.dps * this.maxAmmo;
     }
     draw(camX, camY) {
+        ctx.fillStyle = '#ffcc00';
+        ctx.fillRect(this.x - this.w/2 - camX, this.y - this.h/2 - camY, this.w, this.h);
+        ctx.strokeStyle = '#fff';
+        ctx.strokeRect(this.x - this.w/2 - camX, this.y - this.h/2 - camY, this.w, this.h);
+    }
+}
+
+class Zombie {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.radius = 14;
+        this.speed = 1.8;
+    }
+    update(heroX, heroY) {
+        // Basic tracking behavior pushing towards hero coordinates
+        const dx = heroX - this.x;
+        const dy = heroY - this.y;
+        const dist = Math.hypot(dx, dy);
+        
+        if (dist > 5) {
+            const angle = Math.atan2(dy, dx);
+            let nextX = this.x + Math.cos(angle) * this.speed;
+            let nextY = this.y + Math.sin(angle) * this.speed;
+
+            if (!checkWallCollision(nextX, this.y, this.radius)) this.x = nextX;
+            if (!checkWallCollision(this.x, nextY, this.radius)) this.y = nextY;
+        }
+    }
+    draw(camX, camY) {
         ctx.beginPath();
         ctx.arc(this.x - camX, this.y - camY, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#ed8936';
+        ctx.fillStyle = '#33cc33';
         ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#116611';
+        ctx.lineWidth = 2;
         ctx.stroke();
-        ctx.closePath();
     }
 }
 
@@ -150,14 +154,14 @@ class Hero {
         this.x = x;
         this.y = y;
         this.radius = 15;
-        this.speed = 4.5;
+        this.speed = 3.5;
         this.angle = 0;
         
-        this.weapon = { dps: 1.5, maxAmmo: 5 };
+        this.weapon = { name: 'Pistol', dps: 1.5, maxAmmo: 5 };
         
-        this.viewRange = 380; 
+        this.viewRange = 400; 
         this.viewAngle = Math.PI / 3; // 60 degrees
-        this.numRays = 25; // 25 structural sight lines
+        this.numRays = 25; 
     }
 
     getUtilityScore() {
@@ -165,78 +169,74 @@ class Hero {
     }
 
     update() {
-        let moveX = 0;
-        let moveY = 0;
+        // --- CHOOSE TARGET / AI ENGINE WORKSPACE ---
+        // Right now, the AI dynamically targets the closest item drop to demonstrate autonomy.
+        let targetX = this.x;
+        let targetY = this.y;
+        let hasTarget = false;
 
-        if (keys['w'] || keys['ArrowUp'] || keys['W']) moveY -= 1;
-        if (keys['s'] || keys['ArrowDown'] || keys['S']) moveY += 1;
-        if (keys['a'] || keys['ArrowLeft'] || keys['A']) moveX -= 1;
-        if (keys['d'] || keys['ArrowRight'] || keys['D']) moveX += 1;
+        if (weaponDrops.length > 0) {
+            let closestDrop = weaponDrops[0];
+            let minDist = Math.hypot(closestDrop.x - this.x, closestDrop.y - this.y);
+            
+            for (let drop of weaponDrops) {
+                let d = Math.hypot(drop.x - this.x, drop.y - this.y);
+                if (d < minDist) {
+                    minDist = d;
+                    closestDrop = drop;
+                }
+            }
+            targetX = closestDrop.x;
+            targetY = closestDrop.y;
+            hasTarget = true;
+        }
 
-        if (moveX !== 0 || moveY !== 0) {
-            const length = Math.hypot(moveX, moveY);
-            let nextX = this.x + (moveX / length) * this.speed;
-            let nextY = this.y + (moveY / length) * this.speed;
-
-            this.executeMovement(nextX, nextY);
-            this.angle = Math.atan2(targetInput.worldY - this.y, targetInput.worldX - this.x);
-        } else if (targetInput.isActive) {
-            const dx = targetInput.worldX - this.x;
-            const dy = targetInput.worldY - this.y;
+        // --- AUTONOMOUS AI MOVEMENT EXECUTION ---
+        if (hasTarget) {
+            const dx = targetX - this.x;
+            const dy = targetY - this.y;
             const dist = Math.hypot(dx, dy);
 
             this.angle = Math.atan2(dy, dx);
 
-            // FIX: Smooth deceleration zone to completely solve overshooting/jittering
+            // FIX: Smooth arrival snapping prevents standard overshooting/jittering oscillations
             if (dist > this.speed) {
                 let nextX = this.x + Math.cos(this.angle) * this.speed;
                 let nextY = this.y + Math.sin(this.angle) * this.speed;
                 this.executeMovement(nextX, nextY);
-            } else if (dist > 0.5) {
-                this.executeMovement(targetInput.worldX, targetInput.worldY);
+            } else {
+                this.executeMovement(targetX, targetY);
             }
         }
 
-        // --- PLACE YOUR CUSTOM AI WEAPON EVALUATION HERE ---
-        /*
+        // --- AUTOMATED AI WEAPON EVALUATION ---
+        // Change or augment this conditional behavior blocks as you swap out logic
         weaponDrops.forEach((drop, index) => {
             const dist = Math.hypot(drop.x - this.x, drop.y - this.y);
-            if (dist < this.radius + drop.radius) {
+            if (dist < this.radius + 10) { 
                 const currentScore = this.getUtilityScore();
                 const newScore = drop.getUtilityScore();
                 
-                // Write your conditional evaluation logic here:
+                // AI Rule: Decide swap eligibility based on weapon metric scoring definitions
                 if (newScore > currentScore) {
-                    this.weapon = { dps: drop.dps, maxAmmo: drop.maxAmmo };
+                    this.weapon = { name: drop.name, dps: drop.dps, maxAmmo: drop.maxAmmo };
                     weaponDrops.splice(index, 1);
                     updateUI();
                 }
             }
         });
-        */
     }
 
     executeMovement(nx, ny) {
-        // FIX: Enforce hard map boundaries
+        // FIX: Finite boundary enforcement
         nx = Math.max(this.radius, Math.min(MAP_SIZE - this.radius, nx));
         ny = Math.max(this.radius, Math.min(MAP_SIZE - this.radius, ny));
 
-        // FIX: Sliding axis collision logic (Prevents passing through walls)
-        if (!this.checkWallCollision(nx, this.y)) this.x = nx;
-        if (!this.checkWallCollision(this.x, ny)) this.y = ny;
+        // FIX: Slide collision axis resolution preventing wall clipping
+        if (!checkWallCollision(nx, this.y, this.radius)) this.x = nx;
+        if (!checkWallCollision(this.x, ny, this.radius)) this.y = ny;
     }
 
-    checkWallCollision(nx, ny) {
-        for (let wall of walls) {
-            if (nx + this.radius > wall.x && nx - this.radius < wall.x + wall.w &&
-                ny + this.radius > wall.y && ny - this.radius < wall.y + wall.h) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // FIX: 25-Raycast Occlusion Viewcone
     drawViewCone(camX, camY) {
         const startAngle = this.angle - this.viewAngle / 2;
         const angleStep = this.viewAngle / (this.numRays - 1);
@@ -261,8 +261,7 @@ class Hero {
             points.push([finalX - camX, finalY - camY]);
         }
 
-        // Clean tactical visual overlay for visibility cone
-        ctx.fillStyle = 'rgba(246, 173, 85, 0.08)';
+        ctx.fillStyle = 'rgba(0, 255, 204, 0.06)';
         ctx.beginPath();
         ctx.moveTo(points[0][0], points[0][1]);
         for (let i = 1; i < points.length; i++) {
@@ -277,23 +276,30 @@ class Hero {
         ctx.translate(this.x - camX, this.y - camY);
         ctx.rotate(this.angle);
         
-        // Character Body Base Color
         ctx.beginPath();
         ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#3182ce';
+        ctx.fillStyle = '#1a73e8';
         ctx.fill();
         ctx.lineWidth = 2;
-        ctx.strokeStyle = '#63b3ed';
+        ctx.strokeStyle = '#64b5f6';
         ctx.stroke();
 
-        // Direction Weapon Indicator
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, -3, 20, 6);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, -3, 18, 6);
         ctx.restore();
     }
 }
 
-// Liang-Barsky line clipping algorithm for ray intersections
+function checkWallCollision(nx, ny, radius) {
+    for (let wall of walls) {
+        if (nx + radius > wall.x && nx - radius < wall.x + wall.w &&
+            ny + radius > wall.y && ny - radius < wall.y + wall.h) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function checkRayRectIntersection(rx1, ry1, rx2, ry2, rect) {
     let t0 = 0, t1 = 1;
     const dx = rx2 - rx1;
@@ -323,16 +329,13 @@ function checkRayRectIntersection(rx1, ry1, rx2, ry2, rect) {
     return t0;
 }
 
-// --- WORLD POPULATION ---
+// --- INITIALIZE ELEMENTS ---
 const hero = new Hero(150, 150);
 const walls = [
-    // Houses/Obstacles layout
-    new Wall(350, 250, 300, 200),
-    new Wall(800, 150, 400, 400),
-    new Wall(200, 700, 450, 250),
-    new Wall(900, 800, 500, 350),
-    new Wall(400, 1300, 600, 250),
-    // Hard perimeter map boundaries
+    new Wall(350, 200, 300, 200),
+    new Wall(850, 400, 200, 400),
+    new Wall(250, 800, 400, 200),
+    // Map bounds walls
     new Wall(0, 0, MAP_SIZE, 20),
     new Wall(0, 0, 20, MAP_SIZE),
     new Wall(0, MAP_SIZE - 20, MAP_SIZE, 20),
@@ -340,58 +343,41 @@ const walls = [
 ];
 
 const weaponDrops = [
-    new WeaponDrop(500, 150, 4.0, 1), 
-    new WeaponDrop(1000, 300, 2.0, 8),
-    new WeaponDrop(300, 850, 1.5, 12)
+    new WeaponDrop(500, 120, 4.0, 1, 'Heavy Shotgun'), 
+    new WeaponDrop(950, 350, 2.0, 8, 'Tactical Rifle'),
+    new WeaponDrop(450, 900, 1.5, 12, 'Extended Smg')
+];
+
+const zombies = [
+    new Zombie(400, 500),
+    new Zombie(1000, 200),
+    new Zombie(200, 900),
+    new Zombie(1200, 1200)
 ];
 
 function updateUI() {
-    document.getElementById('ui-weapon').innerText = `DPS: ${hero.weapon.dps}, Ammo: ${hero.weapon.maxAmmo}`;
+    document.getElementById('ui-weapon').innerText = `${hero.weapon.name} (DPS: ${hero.weapon.dps}, Ammo: ${hero.weapon.maxAmmo})`;
     document.getElementById('ui-score').innerText = hero.getUtilityScore().toFixed(1);
+    document.getElementById('ui-zombies').innerText = zombies.length;
 }
+updateUI();
 
-// --- CONTROLS HOOKS ---
-window.addEventListener('keydown', (e) => keys[e.key] = true);
-window.addEventListener('keyup', (e) => keys[e.key] = false);
-
-function updatePointer(clientX, clientY, active) {
-    const rect = canvas.getBoundingClientRect();
-    targetInput.x = clientX - rect.left;
-    targetInput.y = clientY - rect.top;
-    targetInput.isActive = active;
-}
-
-canvas.addEventListener('mousemove', (e) => updatePointer(e.clientX, e.clientY, targetInput.isActive));
-canvas.addEventListener('mousedown', (e) => updatePointer(e.clientX, e.clientY, true));
-canvas.addEventListener('mouseup', () => targetInput.isActive = false);
-
-canvas.addEventListener('touchstart', (e) => {
-    if(e.touches.length > 0) updatePointer(e.touches[0].clientX, e.touches[0].clientY, true);
-}, {passive: true});
-canvas.addEventListener('touchmove', (e) => {
-    if(e.touches.length > 0) updatePointer(e.touches[0].clientX, e.touches[0].clientY, true);
-}, {passive: true});
-canvas.addEventListener('touchend', () => targetInput.isActive = false);
-
-// --- RUN LOOP ---
+// --- ENGINE FRAME EXECUTION ---
 function loop() {
-    // FIX: Camera tightly tracking hero center
+    hero.update();
+    zombies.forEach(zombie => zombie.update(hero.x, hero.y));
+
+    // CAMERA SNAP LOCK: Centered right over our autonomous AI hero unit
     let camX = hero.x - VIEW_WIDTH / 2;
     let camY = hero.y - VIEW_HEIGHT / 2;
 
-    // Constrain camera system to finite arena bounds
     camX = Math.max(0, Math.min(MAP_SIZE - VIEW_WIDTH, camX));
     camY = Math.max(0, Math.min(MAP_SIZE - VIEW_HEIGHT, camY));
 
-    targetInput.worldX = targetInput.x + camX;
-    targetInput.worldY = targetInput.y + camY;
-
-    hero.update();
-
     ctx.clearRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
 
-    // Schematic Grid Lines Drawing
-    ctx.strokeStyle = '#1b1e26';
+    // Matrix Grid Floor Render Operations
+    ctx.strokeStyle = '#111115';
     ctx.lineWidth = 1;
     const step = 100;
     for(let x = 0; x < MAP_SIZE; x += step) {
@@ -401,9 +387,10 @@ function loop() {
         ctx.beginPath(); ctx.moveTo(0, y - camY); ctx.lineTo(MAP_SIZE, y - camY); ctx.stroke();
     }
 
-    // Drawing Pipeline Order
+    // Processing Draw Pipeline Stages
     weaponDrops.forEach(drop => drop.draw(camX, camY));
     hero.drawViewCone(camX, camY);
+    zombies.forEach(zombie => zombie.draw(camX, camY));
     walls.forEach(wall => wall.draw(camX, camY));
     hero.draw(camX, camY);
 
