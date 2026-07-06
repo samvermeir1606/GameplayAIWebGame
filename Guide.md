@@ -20,7 +20,7 @@ Returns the vital vectors and condition trackers of your hero agent.
     "stamina": 10.00,
     "pos": { "x": 325.0, "y": 300.0 } // Vector object copy
   }
-api.getInventory()
+### `api.getInventory()`
 Returns an array containing exactly 5 items tracking stored items. Empty positions return null.
 
 Return Format: [Item, null, Item, null, null]
@@ -31,7 +31,7 @@ name: String label representation (e.g., "PISTOL (DPS: 2.4, AMMO: 6)" or "FOOD (
 
 type: Categorized tag string: "gun", "food", or "medkit".
 
-api.getCurrentlyVisibleHouses()
+### `api.getCurrentlyVisibleHouses()`
 Returns a structural map list containing geometry coordinates of houses crossing your raycasted field-of-view cone.
 
 Return Format:
@@ -46,7 +46,7 @@ JavaScript
     ]
   }
 ]
-api.getVisibleZombies() & api.getVisibleItems()
+### `api.getVisibleZombies()` & `api.getVisibleItems()`
 Returns an array of entities currently crossing inside your raycasted sight boundaries.
 
 Zombie Entity Properties: { health: 35, pos: Vector2 }
@@ -56,26 +56,26 @@ Item Entity Properties: { pos: Vector2, meta: { name: String, type: String } }
 🎯 2. Actuator Controls (Commands)
 Invoking an actuator action modifies your hero's acceleration forces or asset structures for the current frame iteration.
 
-api.wander()
+### `api.wander()`
 
 Applies organic pathfinding exploration steering forces.
 
-api.seek(targetVector)
+### `api.seek(targetVector)`
 
 Decelerates towards a target position using steering arrivals to eliminate overshooting.
 
-api.flee(targetVector)
+### `api.flee(targetVector)`
 
 Toggles sprinting speed modifications and directs movement vectors cleanly away from a target coordinate.
 
-api.shootAt(zombieEntity)
+### `api.shootAt(zombieEntity)`
 
 Halts movement speed temporarily, aims heading parameters at the zombie vector, and spawns bullet intersection vectors.
 
-api.useItem(slotIndex)
+### `api.useItem(slotIndex)`
 
 Consumes food or medical supplies at the index position to restore vital properties.
 
-api.dropItem(slotIndex)
+### `api.dropItem(slotIndex)`
 
 Clears an item asset container allocation slot.
