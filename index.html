@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zombie Survival AI Simulator - Mobile Responsive</title>
+    <title>Zombie Survival AI Simulator - Complete Mechanics</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -50,7 +50,6 @@
         .stat-val { color: #ffffff; }
         .inv-slot { color: #aaaaaa; }
 
-        /* Mobile Layout Adjustments */
         @media (max-width: 768px) {
             body { flex-direction: column; overflow-y: auto; height: auto; }
             #simulation-container { height: 60vh; width: 100vw; flex: none; }
@@ -67,6 +66,7 @@
     <div id="sidebar">
         <div class="section-title" style="margin-top:0;">World Info</div>
         <div class="stat-line">SCORE:<span id="ui-score" class="stat-val">0</span></div>
+        <div class="stat-line">Visible Houses:<span id="ui-visible-houses" class="stat-val">0</span></div>
         
         <div class="section-title">Agent Info</div>
         <div class="stat-line">Health:<span id="ui-health" class="stat-val">10</span></div>
@@ -89,420 +89,446 @@
     </div>
 
     <script>
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-const container = document.getElementById('simulation-container');
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('simulation-container');
 
-const WORLD_WIDTH = 4000;
-const WORLD_HEIGHT = 2500;
+        const WORLD_WIDTH = 4000;
+        const WORLD_HEIGHT = 2500;
+        
+        let currentScale = 0.9;
+        let panX = 0, panY = 0;
+        let isDragging = false;
+        let startX, startY;
+        let initialPinchDist = null;
 
-// --- MOBILE INTERACTION STATES ---
-let currentScale = 1.0;
-let panX = 0;
-let panY = 0;
-let isDragging = false;
-let startX, startY;
-let initialPinchDist = null;
+        function resizeCanvas() {
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
 
-function resizeCanvas() {
-    canvas.width = container.clientWidth;
-    canvas.height = container.clientHeight;
-}
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
+        class Vector2 {
+            constructor(x = 0, y = 0) { this.x = x; this.y = y; }
+            set(x, y) { this.x = x; this.y = y; return this; }
+            add(v) { this.x += v.x; this.y += v.y; return this; }
+            sub(v) { this.x -= v.x; this.y -= v.y; return this; }
+            mult(n) { this.x *= n; this.y *= n; return this; }
+            div(n) { if (n !== 0) { this.x /= n; this.y /= n; } return this; }
+            mag() { return Math.sqrt(this.x * this.x + this.y * this.y); }
+            normalize() { let m = this.mag(); if (m > 0) { this.div(m); } else { this.x = 0; this.y = 0; } return this; }
+            limit(max) { if (this.mag() > max) { this.normalize(); this.mult(max); } return this; }
+            heading() { return Math.atan2(this.y, this.x); }
+            dist(v) { return Math.sqrt((this.x - v.x)**2 + (this.y - v.y)**2); }
+            copy() { return new Vector2(this.x, this.y); }
+        }
 
-class Vector2 {
-    constructor(x = 0, y = 0) { this.x = x; this.y = y; }
-    set(x, y) { this.x = x; this.y = y; return this; }
-    add(v) { this.x += v.x; this.y += v.y; return this; }
-    sub(v) { this.x -= v.x; this.y -= v.y; return this; }
-    mult(n) { this.x *= n; this.y *= n; return this; }
-    div(n) { if (n !== 0) { this.x /= n; this.y /= n; } return this; }
-    mag() { return Math.sqrt(this.x * this.x + this.y * this.y); }
-    normalize() { let m = this.mag(); if (m > 0) { this.div(m); } else { this.x = 0; this.y = 0; } return this; }
-    limit(max) { if (this.mag() > max) { this.normalize(); this.mult(max); } return this; }
-    heading() { return Math.atan2(this.y, this.x); }
-    dist(v) { return Math.sqrt((this.x - v.x)**2 + (this.y - v.y)**2); }
-    copy() { return new Vector2(this.x, this.y); }
-}
-
-// --- HOUSES CONFIGURATION ---
-const houses = [
-    { x: 200, y: 200, w: 400, h: 300, walls: [], door: { x: 380, y: 500, w: 40, h: 10, side: 'bottom' } },
-    { x: 1000, y: 150, w: 500, h: 400, walls: [], door: { x: 1000, y: 300, w: 10, h: 40, side: 'left' } },
-    { x: 2000, y: 250, w: 300, h: 300, walls: [], door: { x: 2120, y: 250, w: 40, h: 10, side: 'top' } },
-    { x: 1500, y: 1100, w: 600, h: 400, walls: [], door: { x: 1800, y: 1500, w: 50, h: 10, side: 'bottom' } },
-    { x: 600, y: 1400, w: 350, h: 350, walls: [], door: { x: 950, y: 1550, w: 10, h: 40, side: 'right' } },
-    { x: 2800, y: 1600, w: 500, h: 400, walls: [], door: { x: 3000, y: 2000, w: 50, h: 10, side: 'bottom' } }
-];
-
-function structureWalls() {
-    houses.forEach(h => {
-        h.walls = []; // clear
-        const wallSegments = [
-            { p1: new Vector2(h.x, h.y), p2: new Vector2(h.x + h.w, h.y) },
-            { p1: new Vector2(h.x + h.w, h.y), p2: new Vector2(h.x + h.w, h.y + h.h) },
-            { p1: new Vector2(h.x + h.w, h.y + h.h), p2: new Vector2(h.x, h.y + h.h) },
-            { p1: new Vector2(h.x, h.y + h.h), p2: new Vector2(h.x, h.y) }
+        // --- HOUSES WITH GENERATED PROPERTIES & CONTROLLED ENTRANCES ---
+        const houses = [
+            { id: 1, x: 200, y: 200, w: 400, h: 300, walls: [], doors: [{ x: 380, y: 500, w: 40, h: 10, side: 'bottom' }] },
+            { id: 2, x: 1000, y: 150, w: 500, h: 400, walls: [], doors: [{ x: 1000, y: 300, w: 10, h: 40, side: 'left' }, { x: 1300, y: 150, w: 40, h: 10, side: 'top' }] },
+            { id: 3, x: 2200, y: 250, w: 350, h: 300, walls: [], doors: [{ x: 2320, y: 250, w: 40, h: 10, side: 'top' }] },
+            { id: 4, x: 1500, y: 1100, w: 600, h: 450, walls: [], doors: [{ x: 1750, y: 1550, w: 50, h: 10, side: 'bottom' }, { x: 2100, y: 1300, w: 10, h: 50, side: 'right' }] },
+            { id: 5, x: 500, y: 1400, w: 450, h: 400, walls: [], doors: [{ x: 950, y: 1550, w: 10, h: 40, side: 'right' }] },
+            { id: 6, x: 2800, y: 1600, w: 500, h: 400, walls: [], doors: [{ x: 3000, y: 2000, w: 50, h: 10, side: 'bottom' }] }
         ];
 
-        wallSegments.forEach(ws => {
-            if (h.door.side === 'top' && ws.p1.y === h.y && ws.p2.y === h.y) {
-                h.walls.push({ p1: ws.p1, p2: new Vector2(h.door.x, h.y) });
-                h.walls.push({ p1: new Vector2(h.door.x + h.door.w, h.y), p2: ws.p2 });
-            } else if (h.door.side === 'bottom' && ws.p1.y === h.y+h.h && ws.p2.y === h.y+h.h) {
-                h.walls.push({ p1: ws.p1, p2: new Vector2(h.door.x, h.y + h.h) });
-                h.walls.push({ p1: new Vector2(h.door.x + h.door.w, h.y + h.h), p2: ws.p2 });
-            } else if (h.door.side === 'left' && ws.p1.x === h.x && ws.p2.x === h.x) {
-                h.walls.push({ p1: ws.p1, p2: new Vector2(h.x, h.door.y) });
-                h.walls.push({ p1: new Vector2(h.x, h.door.y + h.door.h), p2: ws.p2 });
-            } else if (h.door.side === 'right' && ws.p1.x === h.x+h.w && ws.p2.x === h.x+h.w) {
-                h.walls.push({ p1: ws.p1, p2: new Vector2(h.x + h.w, h.door.y) });
-                h.walls.push({ p1: new Vector2(h.x + h.w, h.door.y + h.door.h), p2: ws.p2 });
-            } else {
-                h.walls.push(ws);
-            }
-        });
-    });
-}
-structureWalls();
-
-let items = []; let zombies = []; let bullets = [];
-
-function spawnItems() {
-    houses.forEach(h => {
-        for(let i=0; i<3; i++) {
-            let r = Math.random();
-            let meta = {};
-            if(r < 0.35) {
-                meta = { name: `PISTOL (DPS: ${(Math.random()*3 + 1).toFixed(1)}, AMMO: ${Math.floor(Math.random()*6 + 2)})`, type: 'gun', color: '#0be881' };
-            } else if(r < 0.65) {
-                meta = { name: 'FOOD (7)', type: 'food', color: '#ffd32a' };
-            } else {
-                meta = { name: 'MEDKIT (4)', type: 'medkit', color: '#ff5e57' };
-            }
-            items.push({
-                pos: new Vector2(h.x + 40 + Math.random()*(h.w-80), h.y + 40 + Math.random()*(h.h-80)),
-                meta: meta
-            });
-        }
-    });
-}
-
-function populateZombies() {
-    for(let i=0; i<35; i++) {
-        zombies.push({
-            pos: new Vector2(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT),
-            velocity: new Vector2((Math.random()-0.5)*2, (Math.random()-0.5)*2),
-            wanderAngle: Math.random() * Math.PI * 2,
-            health: 35
-        });
-    }
-}
-
-const agent = {
-    pos: new Vector2(400, 450), velocity: new Vector2(0, 0), acceleration: new Vector2(0, 0),
-    maxSpeed: 3.5, maxForce: 0.25, heading: 0, fovAngle: Math.PI / 2.5, fovRange: 220,
-    health: 10, energy: 20, stamina: 18, runMode: "FALSE", bitten: "FALSE", score: 0,
-    inventory: [null, null, null, null, null], selectedSlot: 0, wanderAngle: 0, shootCooldown: 0, viewPoints: []
-};
-
-function getIntersection(p1, p2, p3, p4) {
-    let denominator = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
-    if (denominator === 0) return null;
-    let ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / denominator;
-    let ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / denominator;
-    if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
-        return new Vector2(p1.x + ua * (p2.x - p1.x), p1.y + ua * (p2.y - p1.y));
-    }
-    return null;
-}
-
-function calculateFOVRays() {
-    agent.viewPoints = [];
-    const numRays = 30;
-    const startAngle = agent.heading - agent.fovAngle / 2;
-    const angleStep = agent.fovAngle / (numRays - 1);
-
-    for (let i = 0; i < numRays; i++) {
-        let currentAngle = startAngle + angleStep * i;
-        let rayEnd = new Vector2(agent.pos.x + Math.cos(currentAngle) * agent.fovRange, agent.pos.y + Math.sin(currentAngle) * agent.fovRange);
-        let closestIntersect = rayEnd; let minDist = agent.fovRange;
-
+        // Assign computed center points and specific doorway point nodes
         houses.forEach(h => {
-            h.walls.forEach(w => {
-                let hit = getIntersection(agent.pos, rayEnd, w.p1, w.p2);
-                if (hit) {
-                    let d = agent.pos.dist(hit);
-                    if (d < minDist) { minDist = d; closestIntersect = hit; }
-                }
+            h.center = new Vector2(h.x + h.w / 2, h.y + h.h / 2);
+            h.entrancePoints = h.doors.map(d => {
+                return new Vector2(d.x + d.w / 2, d.y + d.h / 2);
             });
         });
-        agent.viewPoints.push(closestIntersect);
-    }
-}
 
-function isPointInView(targetPos) {
-    let d = agent.pos.dist(targetPos);
-    if (d > agent.fovRange) return false;
-    let toTarget = targetPos.copy().sub(agent.pos);
-    let angle = Math.atan2(toTarget.y, toTarget.x) - agent.heading;
-    while (angle < -Math.PI) angle += Math.PI * 2; while (angle > Math.PI) angle -= Math.PI * 2;
-    if (Math.abs(angle) > agent.fovAngle / 2) return false;
+        function structureWalls() {
+            houses.forEach(h => {
+                h.walls = [];
+                let rawWalls = [
+                    { p1: new Vector2(h.x, h.y), p2: new Vector2(h.x + h.w, h.y), side: 'top' },
+                    { p1: new Vector2(h.x + h.w, h.y), p2: new Vector2(h.x + h.w, h.y + h.h), side: 'right' },
+                    { p1: new Vector2(h.x + h.w, h.y + h.h), p2: new Vector2(h.x, h.y + h.h), side: 'bottom' },
+                    { p1: new Vector2(h.x, h.y + h.h), p2: new Vector2(h.x, h.y), side: 'left' }
+                ];
 
-    let wallBlock = false;
-    houses.forEach(h => {
-        h.walls.forEach(w => { if (getIntersection(agent.pos, targetPos, w.p1, w.p2)) wallBlock = true; });
-    });
-    return !wallBlock;
-}
+                rawWalls.forEach(wall => {
+                    let overlappingDoors = h.doors.filter(d => d.side === wall.side);
+                    if (overlappingDoors.length > 0) {
+                        let points = [wall.p1.copy(), wall.p2.copy()];
+                        overlappingDoors.forEach(d => {
+                            if (wall.side === 'top' || wall.side === 'bottom') {
+                                h.walls.push({ p1: points[0].copy(), p2: new Vector2(d.x, points[0].y) });
+                                points[0].set(d.x + d.w, points[0].y);
+                            } else {
+                                h.walls.push({ p1: points[0].copy(), p2: new Vector2(points[0].x, d.y) });
+                                points[0].set(points[0].x, d.y + d.h);
+                            }
+                        });
+                        h.walls.push({ p1: points[0], p2: points[1] });
+                    } else {
+                        h.walls.push(wall);
+                    }
+                });
+            });
+        }
+        structureWalls();
 
-// --- FIXED ARRIVE MECHANICS (SAFEGUARDED AGAINST DIVISION BY ZERO) ---
-function steerArrive(entity, targetPos, decelerationRadius = 80) {
-    let desired = targetPos.copy().sub(entity.pos);
-    let distance = desired.mag();
-    
-    if (distance < 0.1) {
-        entity.velocity.set(0, 0); // Completely halt to prevent NaN drift
-        return new Vector2(0, 0);
-    }
+        let items = []; let zombies = []; let bullets = [];
+        let currentlyVisibleHouses = [];
 
-    desired.normalize();
-    if (distance < decelerationRadius) {
-        let speed = entity.maxSpeed * (distance / decelerationRadius);
-        desired.mult(speed);
-    } else {
-        desired.mult(entity.maxSpeed);
-    }
-    return desired.sub(entity.velocity).limit(entity.maxForce);
-}
+        // Dynamic heavy density spawner
+        function spawnItemPool(amount = 60) {
+            const types = [
+                { name: 'FOOD (7)', type: 'food', color: '#ffd32a' },
+                { name: 'MEDKIT (4)', type: 'medkit', color: '#ff5e57' }
+            ];
+            for (let i = 0; i < amount; i++) {
+                let h = houses[Math.floor(Math.random() * houses.length)];
+                let itemMeta = Math.random() < 0.3 ? 
+                    { name: `PISTOL (DPS: ${(Math.random()*3 + 1.2).toFixed(1)}, AMMO: ${Math.floor(Math.random()*8 + 3)})`, type: 'gun', color: '#0be881' } : 
+                    types[Math.floor(Math.random() * types.length)];
+                
+                items.push({
+                    pos: new Vector2(h.x + 30 + Math.random()*(h.w-60), h.y + 30 + Math.random()*(h.h-60)),
+                    meta: itemMeta
+                });
+            }
+        }
 
-function steerWander(entity) {
-    entity.wanderAngle += (Math.random() - 0.5) * 0.4;
-    let circleCenter = entity.velocity.copy().normalize().mult(60);
-    let displacement = new Vector2(Math.cos(entity.wanderAngle), Math.sin(entity.wanderAngle)).mult(15);
-    return circleCenter.add(displacement).limit(entity.maxForce);
-}
+        function populateZombies() {
+            for(let i=0; i<45; i++) {
+                zombies.push({
+                    pos: new Vector2(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT),
+                    velocity: new Vector2((Math.random()-0.5)*2, (Math.random()-0.5)*2),
+                    wanderAngle: Math.random() * Math.PI * 2,
+                    health: 35,
+                    agroRadius: 180, // Custom detection threshold per unit
+                    isAgro: false
+                });
+            }
+            // Shove away from starting point
+            zombies.forEach(z => { if(z.pos.dist(agent.pos) < 300) z.pos.add(new Vector2(400, 400)); });
+        }
 
-function steerFlee(entity, targetPos) {
-    let desired = entity.pos.copy().sub(targetPos);
-    if (desired.mag() < 0.1) return new Vector2(0,0);
-    desired.normalize().mult(entity.maxSpeed);
-    return desired.sub(entity.velocity).limit(entity.maxForce);
-}
+        const agent = {
+            pos: new Vector2(400, 450), velocity: new Vector2(0, 0), acceleration: new Vector2(0, 0),
+            maxSpeed: 3.5, maxForce: 0.25, heading: 0, fovAngle: Math.PI / 2.3, fovRange: 240,
+            health: 10, energy: 20, stamina: 18, runMode: "FALSE", bitten: "FALSE", score: 0,
+            inventory: [null, null, null, null, null], selectedSlot: 0, wanderAngle: 0, shootCooldown: 0, viewPoints: []
+        };
 
-// --- UPGRADED HOUSES STATIC BOX DEFLECTION (PREVENTS WALL PHASING) ---
-function processCollisions(entity, radius = 10) {
-    // 1. Finite Map Boundaries
-    if (entity.pos.x - radius < 0) entity.pos.x = radius;
-    if (entity.pos.x + radius > WORLD_WIDTH) entity.pos.x = WORLD_WIDTH - radius;
-    if (entity.pos.y - radius < 0) entity.pos.y = radius;
-    if (entity.pos.y + radius > WORLD_HEIGHT) entity.pos.y = WORLD_HEIGHT - radius;
+        function getIntersection(p1, p2, p3, p4) {
+            let denominator = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
+            if (denominator === 0) return null;
+            let ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / denominator;
+            let ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / denominator;
+            if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
+                return new Vector2(p1.x + ua * (p2.x - p1.x), p1.y + ua * (p2.y - p1.y));
+            }
+            return null;
+        }
 
-    // 2. Rigid Wall Segments Collision
-    houses.forEach(h => {
-        h.walls.forEach(w => {
-            let ab = w.p2.copy().sub(w.p1);
-            let ac = entity.pos.copy().sub(w.p1);
-            let t = (ac.x * ab.x + ac.y * ab.y) / (ab.x * ab.x + ab.y * ab.y);
-            t = Math.max(0, Math.min(1, t));
-            let closestPoint = w.p1.copy().add(ab.mult(t));
+        function calculateFOVRays() {
+            agent.viewPoints = [];
+            currentlyVisibleHouses = [];
+            const numRays = 35;
+            const startAngle = agent.heading - agent.fovAngle / 2;
+            const angleStep = agent.fovAngle / (numRays - 1);
+
+            let detectedHouseIds = new Set();
+
+            for (let i = 0; i < numRays; i++) {
+                let currentAngle = startAngle + angleStep * i;
+                let rayEnd = new Vector2(agent.pos.x + Math.cos(currentAngle) * agent.fovRange, agent.pos.y + Math.sin(currentAngle) * agent.fovRange);
+                let closestIntersect = rayEnd; let minDist = agent.fovRange;
+
+                houses.forEach(h => {
+                    h.walls.forEach(w => {
+                        let hit = getIntersection(agent.pos, rayEnd, w.p1, w.p2);
+                        if (hit) {
+                            let d = agent.pos.dist(hit);
+                            if (d < minDist) { minDist = d; closestIntersect = hit; detectedHouseIds.add(h.id); }
+                        }
+                    });
+                });
+                agent.viewPoints.push(closestIntersect);
+            }
             
-            let dist = entity.pos.dist(closestPoint);
-            if (dist < radius) {
-                let overlap = radius - dist;
-                let pushAway = entity.pos.copy().sub(closestPoint);
-                if (pushAway.mag() === 0) {
-                    // Fallback corner push
-                    pushAway.set(0, -1);
+            // Populate the active array of visible infrastructure
+            houses.forEach(h => {
+                if (detectedHouseIds.has(h.id)) {
+                    currentlyVisibleHouses.push({ id: h.id, center: h.center.copy(), entrances: h.entrancePoints.map(p => p.copy()) });
                 }
-                pushAway.normalize().mult(overlap);
-                entity.pos.add(pushAway); // Shove out of wall boundary instantly
+            });
+        }
+
+        function isPointInView(targetPos) {
+            let d = agent.pos.dist(targetPos);
+            if (d > agent.fovRange) return false;
+            let toTarget = targetPos.copy().sub(agent.pos);
+            let angle = Math.atan2(toTarget.y, toTarget.x) - agent.heading;
+            while (angle < -Math.PI) angle += Math.PI * 2; while (angle > Math.PI) angle -= Math.PI * 2;
+            if (Math.abs(angle) > agent.fovAngle / 2) return false;
+
+            let wallBlock = false;
+            houses.forEach(h => { h.walls.forEach(w => { if (getIntersection(agent.pos, targetPos, w.p1, w.p2)) wallBlock = true; }); });
+            return !wallBlock;
+        }
+
+        function steerArrive(entity, targetPos, decelerationRadius = 80) {
+            let desired = targetPos.copy().sub(entity.pos); let distance = desired.mag();
+            if (distance < 0.1) { entity.velocity.set(0, 0); return new Vector2(0, 0); }
+            desired.normalize();
+            if (distance < decelerationRadius) {
+                let speed = entity.maxSpeed * (distance / decelerationRadius); desired.mult(speed);
+            } else { desired.mult(entity.maxSpeed); }
+            return desired.sub(entity.velocity).limit(entity.maxForce);
+        }
+
+        function steerWander(entity) {
+            entity.wanderAngle += (Math.random() - 0.5) * 0.4;
+            let circleCenter = entity.velocity.copy().normalize().mult(60);
+            let displacement = new Vector2(Math.cos(entity.wanderAngle), Math.sin(entity.wanderAngle)).mult(15);
+            return circleCenter.add(displacement).limit(entity.maxForce);
+        }
+
+        function steerFlee(entity, targetPos) {
+            let desired = entity.pos.copy().sub(targetPos);
+            if (desired.mag() < 0.1) return new Vector2(0,0);
+            desired.normalize().mult(entity.maxSpeed);
+            return desired.sub(entity.velocity).limit(entity.maxForce);
+        }
+
+        function processCollisions(entity, radius = 10) {
+            if (entity.pos.x - radius < 0) entity.pos.x = radius;
+            if (entity.pos.x + radius > WORLD_WIDTH) entity.pos.x = WORLD_WIDTH - radius;
+            if (entity.pos.y - radius < 0) entity.pos.y = radius;
+            if (entity.pos.y + radius > WORLD_HEIGHT) entity.pos.y = WORLD_HEIGHT - radius;
+
+            houses.forEach(h => {
+                h.walls.forEach(w => {
+                    let ab = w.p2.copy().sub(w.p1); let ac = entity.pos.copy().sub(w.p1);
+                    let t = (ac.x * ab.x + ac.y * ab.y) / (ab.x * ab.x + ab.y * ab.y);
+                    t = Math.max(0, Math.min(1, t)); let closestPoint = w.p1.copy().add(ab.mult(t));
+                    let dist = entity.pos.dist(closestPoint);
+                    if (dist < radius) {
+                        let overlap = radius - dist; let pushAway = entity.pos.copy().sub(closestPoint);
+                        if (pushAway.mag() === 0) pushAway.set(0, -1);
+                        pushAway.normalize().mult(overlap); entity.pos.add(pushAway);
+                    }
+                });
+            });
+        }
+
+        function evalWeaponRetention(newWeaponString) {
+            let dps = parseFloat(newWeaponString.match(/DPS:\s*([0-9.]+)/)[1]);
+            let standardGunSlot = agent.inventory.findIndex(i => i && i.type === 'gun');
+            if(standardGunSlot === -1) return true;
+            let oldGun = agent.inventory[standardGunSlot];
+            let oldDps = parseFloat(oldGun.name.match(/DPS:\s*([0-9.]+)/)[1]);
+            return dps > oldDps;
+        }
+
+        function update() {
+            if (agent.energy > 0) agent.energy -= 0.003;
+            if (agent.shootCooldown > 0) agent.shootCooldown--;
+
+            calculateFOVRays();
+            let visibleZombies = zombies.filter(z => isPointInView(z.pos));
+            let visibleItems = items.filter(i => isPointInView(i.pos));
+            let gunSlot = agent.inventory.findIndex(i => i && i.type === 'gun');
+            let steerForce = new Vector2(0,0);
+
+            if (visibleZombies.length > 0) {
+                let target = visibleZombies[0];
+                if (gunSlot !== -1 && parseInt(agent.inventory[gunSlot].name.match(/AMMO:\s*([0-9]+)/)[1]) > 0) {
+                    agent.selectedSlot = gunSlot; agent.maxSpeed = 0;
+                    agent.heading = target.pos.copy().sub(agent.pos).heading();
+                    if (agent.shootCooldown <= 0) {
+                        bullets.push({ pos: agent.pos.copy(), vel: target.pos.copy().sub(agent.pos).normalize().mult(12) });
+                        agent.shootCooldown = 20;
+                        let ammo = parseInt(agent.inventory[gunSlot].name.match(/AMMO:\s*([0-9]+)/)[1]) - 1;
+                        let dps = agent.inventory[gunSlot].name.match(/DPS:\s*([0-9.]+)/)[1];
+                        if (ammo <= 0) agent.inventory[gunSlot] = null;
+                        else agent.inventory[gunSlot].name = `PISTOL (DPS: ${dps}, AMMO: ${ammo})`;
+                    }
+                } else {
+                    agent.maxSpeed = 4.0; agent.runMode = "TRUE"; if(agent.stamina > 0) agent.stamina -= 0.05;
+                    steerForce = steerFlee(agent, target.pos);
+                }
+            } else if (agent.health < 5 && agent.inventory.some(i => i && i.type === 'medkit')) {
+                let idx = agent.inventory.findIndex(i => i && i.type === 'medkit'); agent.health = Math.min(10, agent.health + 4); agent.inventory[idx] = null;
+            } else if (agent.energy < 6 && agent.inventory.some(i => i && i.type === 'food')) {
+                let idx = agent.inventory.findIndex(i => i && i.type === 'food'); agent.energy = Math.min(20, agent.energy + 8); agent.inventory[idx] = null;
+            } else if (visibleItems.length > 0) {
+                agent.maxSpeed = 2.6; agent.runMode = "FALSE"; if(agent.stamina < 18) agent.stamina += 0.02;
+                steerForce = steerArrive(agent, visibleItems[0].pos);
+            } else {
+                agent.maxSpeed = 2.2; agent.runMode = "FALSE"; if(agent.stamina < 18) agent.stamina += 0.03;
+                steerForce = steerWander(agent);
+            }
+
+            agent.acceleration.add(steerForce); 
+            agent.velocity.add(agent.acceleration).limit(agent.maxSpeed); 
+            agent.pos.add(agent.velocity); 
+            agent.acceleration.mult(0);
+            
+            if (agent.velocity.mag() > 0.1 && agent.maxSpeed > 0) agent.heading = agent.velocity.heading();
+
+            processCollisions(agent, 10);
+
+            for(let b=bullets.length-1; b>=0; b--) {
+                bullets[b].pos.add(bullets[b].vel); let broken = false;
+                houses.forEach(h => { h.walls.forEach(w => { let endPoint = bullets[b].pos.copy().add(bullets[b].vel); if(getIntersection(bullets[b].pos, endPoint, w.p1, w.p2)) broken = true; }); });
+                for(let z of zombies) { if(bullets[b].pos.dist(z.pos) < 14) { z.health -= 15; broken = true; break; } }
+                if(broken || bullets[b].pos.x < 0 || bullets[b].pos.x > WORLD_WIDTH || bullets[b].pos.y < 0 || bullets[b].pos.y > WORLD_HEIGHT) { bullets.splice(b,1); }
+            }
+
+            zombies.forEach((z, idx) => {
+                if(z.health <= 0) { zombies.splice(idx,1); agent.score+=40; return; }
+                
+                // Aggro detection radius tracking logic
+                let distToAgent = z.pos.dist(agent.pos);
+                let zForce;
+                
+                if (distToAgent < z.agroRadius) {
+                    z.isAgro = true;
+                    zForce = steerArrive(z, agent.pos); // Run and attack behavior
+                } else {
+                    z.isAgro = false;
+                    zForce = steerWander(z);
+                }
+                
+                z.velocity.add(zForce).limit(z.isAgro ? 1.9 : 1.1); 
+                z.pos.add(z.velocity); 
+                processCollisions(z, 10);
+                
+                if(distToAgent < 14) { agent.health = Math.max(0, agent.health - 0.04); agent.bitten = "TRUE"; } else agent.bitten = "FALSE";
+            });
+
+            for(let i=items.length-1; i>=0; i--) {
+                if(agent.pos.dist(items[i].pos) < 15) {
+                    let itemMeta = items[i].meta;
+                    if (itemMeta.type === 'gun' && !evalWeaponRetention(itemMeta.name)) { items.splice(i, 1); continue; }
+                    let freeSlot = agent.inventory.findIndex(slot => slot === null);
+                    if (freeSlot !== -1) {
+                        if(itemMeta.type === 'gun') { let oldGunIdx = agent.inventory.findIndex(slot => slot && slot.type === 'gun'); if(oldGunIdx !== -1) agent.inventory[oldGunIdx] = null; }
+                        agent.inventory[freeSlot] = itemMeta; items.splice(i,1); agent.score += 20;
+                    }
+                }
+            }
+            if(items.length < 20) spawnItemPool(30);
+            if(zombies.length < 15) populateZombies();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+
+            let targetCamX = -agent.pos.x * currentScale + canvas.width / 2;
+            let targetCamY = -agent.pos.y * currentScale + canvas.height / 2;
+
+            ctx.translate(targetCamX + panX, targetCamY + panY);
+            ctx.scale(currentScale, currentScale);
+
+            ctx.strokeStyle = '#111'; ctx.lineWidth = 10; ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+            // Draw Houses
+            ctx.strokeStyle = '#5a9e5a'; ctx.lineWidth = 6;
+            houses.forEach(h => {
+                h.walls.forEach(w => {
+                    ctx.beginPath(); ctx.moveTo(w.p1.x, w.p1.y); ctx.lineTo(w.p2.x, w.p2.y); ctx.stroke();
+                });
+            });
+
+            items.forEach(i => { ctx.fillStyle = i.meta.color; ctx.beginPath(); ctx.arc(i.pos.x, i.pos.y, 6, 0, Math.PI * 2); ctx.fill(); });
+            bullets.forEach(b => { ctx.fillStyle = '#f5cd79'; ctx.beginPath(); ctx.arc(b.pos.x, b.pos.y, 3, 0, Math.PI * 2); ctx.fill(); });
+            
+            // Draw Enemies and their Dashed Aggro Indicator Rings
+            zombies.forEach(z => {
+                // Dashed agro detector circle
+                ctx.strokeStyle = z.isAgro ? 'rgba(255, 56, 56, 0.35)' : 'rgba(150, 150, 150, 0.15)';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 6]);
+                ctx.beginPath();
+                ctx.arc(z.pos.x, z.pos.y, z.agroRadius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]); // clear dash
+
+                // Enemy Body Core
+                ctx.fillStyle = '#b33939';
+                ctx.beginPath(); ctx.arc(z.pos.x, z.pos.y, 10, 0, Math.PI * 2); ctx.fill();
+            });
+
+            if (agent.viewPoints.length > 0 && !isNaN(agent.pos.x)) {
+                ctx.fillStyle = 'rgba(212, 175, 55, 0.15)'; ctx.strokeStyle = 'rgba(212, 175, 55, 0.4)'; ctx.lineWidth = 1.5;
+                ctx.beginPath(); ctx.moveTo(agent.pos.x, agent.pos.y); agent.viewPoints.forEach(p => ctx.lineTo(p.x, p.y));
+                ctx.closePath(); ctx.fill(); ctx.stroke();
+            }
+
+            if(!isNaN(agent.pos.x)) {
+                ctx.strokeStyle = '#341f97'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(agent.pos.x, agent.pos.y, 22, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+                ctx.fillStyle = agent.bitten === "TRUE" ? '#ff3838' : '#218c74'; ctx.beginPath(); ctx.arc(agent.pos.x, agent.pos.y, 10, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(agent.pos.x, agent.pos.y);
+                ctx.lineTo(agent.pos.x + Math.cos(agent.heading)*14, agent.pos.y + Math.sin(agent.heading)*14); ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        function updateUI() {
+            document.getElementById('ui-score').innerText = agent.score;
+            document.getElementById('ui-visible-houses').innerText = currentlyVisibleHouses.length;
+            document.getElementById('ui-health').innerText = Math.max(0, Math.ceil(agent.health));
+            document.getElementById('ui-energy').innerText = isNaN(agent.energy) ? "0.0" : agent.energy.toFixed(1);
+            document.getElementById('ui-stamina').innerText = isNaN(agent.stamina) ? "0.00" : agent.stamina.toFixed(2);
+            document.getElementById('ui-runmode').innerText = agent.runMode;
+            document.getElementById('ui-speed').innerText = agent.velocity.mag().toFixed(2);
+            document.getElementById('ui-maxspeed').innerText = agent.maxSpeed.toFixed(2);
+            document.getElementById('ui-bitten').innerText = agent.bitten;
+            document.getElementById('ui-selected').innerText = agent.selectedSlot;
+            for(let i=0; i<5; i++) {
+                let text = agent.inventory[i] ? agent.inventory[i].name : 'Empty';
+                document.getElementById(`ui-slot${i}`).innerText = text;
+                document.getElementById(`ui-slot${i}`).style.color = (i === agent.selectedSlot) ? '#55ff55' : '#aaaaaa';
+            }
+        }
+
+        container.addEventListener('mousedown', e => { isDragging = true; startX = e.clientX - panX; startY = e.clientY - panY; });
+        window.addEventListener('mouseup', () => isDragging = false);
+        container.addEventListener('mousemove', e => { if (isDragging) { panX = e.clientX - startX; panY = e.clientY - startY; } });
+
+        container.addEventListener('touchstart', e => {
+            if (e.touches.length === 1) {
+                isDragging = true; startX = e.touches[0].clientX - panX; startY = e.touches[0].clientY - panY;
+            } else if (e.touches.length === 2) {
+                initialPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
             }
         });
-    });
-}
-
-function evalWeaponRetention(newWeaponString) {
-    let dps = parseFloat(newWeaponString.match(/DPS:\s*([0-9.]+)/)[1]);
-    let standardGunSlot = agent.inventory.findIndex(i => i && i.type === 'gun');
-    if(standardGunSlot === -1) return true;
-    let oldGun = agent.inventory[standardGunSlot];
-    let oldDps = parseFloat(oldGun.name.match(/DPS:\s*([0-9.]+)/)[1]);
-    return dps > oldDps;
-}
-
-function update() {
-    if (agent.energy > 0) agent.energy -= 0.003;
-    if (agent.shootCooldown > 0) agent.shootCooldown--;
-
-    calculateFOVRays();
-    let visibleZombies = zombies.filter(z => isPointInView(z.pos));
-    let visibleItems = items.filter(i => isPointInView(i.pos));
-    let gunSlot = agent.inventory.findIndex(i => i && i.type === 'gun');
-    let steerForce = new Vector2(0,0);
-
-    if (visibleZombies.length > 0) {
-        let target = visibleZombies[0];
-        if (gunSlot !== -1 && parseInt(agent.inventory[gunSlot].name.match(/AMMO:\s*([0-9]+)/)[1]) > 0) {
-            agent.selectedSlot = gunSlot; agent.maxSpeed = 0;
-            agent.heading = target.pos.copy().sub(agent.pos).heading();
-            if (agent.shootCooldown <= 0) {
-                bullets.push({ pos: agent.pos.copy(), vel: target.pos.copy().sub(agent.pos).normalize().mult(12) });
-                agent.shootCooldown = 20;
-                let ammo = parseInt(agent.inventory[gunSlot].name.match(/AMMO:\s*([0-9]+)/)[1]) - 1;
-                let dps = agent.inventory[gunSlot].name.match(/DPS:\s*([0-9.]+)/)[1];
-                if (ammo <= 0) agent.inventory[gunSlot] = null;
-                else agent.inventory[gunSlot].name = `PISTOL (DPS: ${dps}, AMMO: ${ammo})`;
+        container.addEventListener('touchend', () => { isDragging = false; initialPinchDist = null; });
+        container.addEventListener('touchmove', e => {
+            if (isDragging && e.touches.length === 1) {
+                panX = e.touches[0].clientX - startX; panY = e.touches[0].clientY - startY;
+            } else if (e.touches.length === 2 && initialPinchDist) {
+                let currentDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                let factor = currentDist / initialPinchDist;
+                currentScale = Math.max(0.4, Math.min(2.5, currentScale * (factor - 1 * 0.1 + 1)));
             }
-        } else {
-            agent.maxSpeed = 4.0; agent.runMode = "TRUE"; if(agent.stamina > 0) agent.stamina -= 0.05;
-            steerForce = steerFlee(agent, target.pos);
-        }
-    } else if (agent.health < 5 && agent.inventory.some(i => i && i.type === 'medkit')) {
-        let idx = agent.inventory.findIndex(i => i && i.type === 'medkit'); agent.health = Math.min(10, agent.health + 4); agent.inventory[idx] = null;
-    } else if (agent.energy < 6 && agent.inventory.some(i => i && i.type === 'food')) {
-        let idx = agent.inventory.findIndex(i => i && i.type === 'food'); agent.energy = Math.min(20, agent.energy + 8); agent.inventory[idx] = null;
-    } else if (visibleItems.length > 0) {
-        agent.maxSpeed = 2.6; agent.runMode = "FALSE"; if(agent.stamina < 18) agent.stamina += 0.02;
-        steerForce = steerArrive(agent, visibleItems[0].pos);
-    } else {
-        agent.maxSpeed = 2.2; agent.runMode = "FALSE"; if(agent.stamina < 18) agent.stamina += 0.03;
-        steerForce = steerWander(agent);
-    }
-
-    agent.acceleration.add(steerForce); 
-    agent.velocity.add(agent.acceleration).limit(agent.maxSpeed); 
-    agent.pos.add(agent.velocity); 
-    agent.acceleration.mult(0);
-    
-    if (agent.velocity.mag() > 0.1 && agent.maxSpeed > 0) agent.heading = agent.velocity.heading();
-
-    // Fire static position repairs
-    processCollisions(agent, 10);
-
-    for(let b=bullets.length-1; b>=0; b--) {
-        bullets[b].pos.add(bullets[b].vel); let broken = false;
-        houses.forEach(h => { h.walls.forEach(w => { let endPoint = bullets[b].pos.copy().add(bullets[b].vel); if(getIntersection(bullets[b].pos, endPoint, w.p1, w.p2)) broken = true; }); });
-        for(let z of zombies) { if(bullets[b].pos.dist(z.pos) < 14) { z.health -= 15; broken = true; break; } }
-        if(broken || bullets[b].pos.x < 0 || bullets[b].pos.x > WORLD_WIDTH || bullets[b].pos.y < 0 || bullets[b].pos.y > WORLD_HEIGHT) { bullets.splice(b,1); }
-    }
-
-    zombies.forEach((z, idx) => {
-        if(z.health <= 0) { zombies.splice(idx,1); agent.score+=40; return; }
-        let zForce = agent.pos.dist(z.pos) < 250 ? steerArrive(z, agent.pos) : steerWander(z);
-        z.velocity.add(zForce).limit(1.3); 
-        z.pos.add(z.velocity); 
-        
-        processCollisions(z, 10);
-        
-        if(z.pos.dist(agent.pos) < 14) { agent.health = Math.max(0, agent.health - 0.04); agent.bitten = "TRUE"; } else agent.bitten = "FALSE";
-    });
-
-    for(let i=items.length-1; i>=0; i--) {
-        if(agent.pos.dist(items[i].pos) < 15) {
-            let itemMeta = items[i].meta;
-            if (itemMeta.type === 'gun' && !evalWeaponRetention(itemMeta.name)) { items.splice(i, 1); continue; }
-            let freeSlot = agent.inventory.findIndex(slot => slot === null);
-            if (freeSlot !== -1) {
-                if(itemMeta.type === 'gun') { let oldGunIdx = agent.inventory.findIndex(slot => slot && slot.type === 'gun'); if(oldGunIdx !== -1) agent.inventory[oldGunIdx] = null; }
-                agent.inventory[freeSlot] = itemMeta; items.splice(i,1); agent.score += 20;
-            }
-        }
-    }
-    if(items.length < 5) spawnItems(); if(zombies.length < 10) populateZombies();
-}
-
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.save();
-
-    let targetCamX = -agent.pos.x * currentScale + canvas.width / 2;
-    let targetCamY = -agent.pos.y * currentScale + canvas.height / 2;
-
-    ctx.translate(targetCamX + panX, targetCamY + panY);
-    ctx.scale(currentScale, currentScale);
-
-    ctx.strokeStyle = '#111'; ctx.lineWidth = 10; ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-
-    ctx.strokeStyle = '#5a9e5a'; ctx.lineWidth = 6;
-    houses.forEach(h => {
-        h.walls.forEach(w => {
-            ctx.beginPath(); ctx.moveTo(w.x || w.p1.x, w.y || w.p1.y); ctx.lineTo(w.p2.x, w.p2.y); ctx.stroke();
         });
-    });
+        container.addEventListener('wheel', e => {
+            currentScale = Math.max(0.3, Math.min(2.0, currentScale + (e.deltaY < 0 ? 0.05 : -0.05)));
+        });
 
-    items.forEach(i => { ctx.fillStyle = i.meta.color; ctx.beginPath(); ctx.arc(i.pos.x, i.pos.y, 6, 0, Math.PI * 2); ctx.fill(); });
-    bullets.forEach(b => { ctx.fillStyle = '#f5cd79'; ctx.beginPath(); ctx.arc(b.pos.x, b.pos.y, 3, 0, Math.PI * 2); ctx.fill(); });
-    zombies.forEach(z => { ctx.fillStyle = '#b33939'; ctx.beginPath(); ctx.arc(z.pos.x, z.pos.y, 10, 0, Math.PI * 2); ctx.fill(); });
-
-    if (agent.viewPoints.length > 0 && !isNaN(agent.pos.x)) {
-        ctx.fillStyle = 'rgba(212, 175, 55, 0.15)'; ctx.strokeStyle = 'rgba(212, 175, 55, 0.4)'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(agent.pos.x, agent.pos.y); agent.viewPoints.forEach(p => ctx.lineTo(p.x, p.y));
-        ctx.closePath(); ctx.fill(); ctx.stroke();
-    }
-
-    if(!isNaN(agent.pos.x)) {
-        ctx.strokeStyle = '#341f97'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(agent.pos.x, agent.pos.y, 22, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-        ctx.fillStyle = agent.bitten === "TRUE" ? '#ff3838' : '#218c74'; ctx.beginPath(); ctx.arc(agent.pos.x, agent.pos.y, 10, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(agent.pos.x, agent.pos.y);
-        ctx.lineTo(agent.pos.x + Math.cos(agent.heading)*14, agent.pos.y + Math.sin(agent.heading)*14); ctx.stroke();
-    }
-
-    ctx.restore();
-}
-
-function updateUI() {
-    document.getElementById('ui-score').innerText = agent.score;
-    document.getElementById('ui-health').innerText = Math.max(0, Math.ceil(agent.health));
-    document.getElementById('ui-energy').innerText = isNaN(agent.energy) ? "0.0" : agent.energy.toFixed(1);
-    document.getElementById('ui-stamina').innerText = isNaN(agent.stamina) ? "0.00" : agent.stamina.toFixed(2);
-    document.getElementById('ui-runmode').innerText = agent.runMode;
-    document.getElementById('ui-speed').innerText = agent.velocity.mag().toFixed(2);
-    document.getElementById('ui-maxspeed').innerText = agent.maxSpeed.toFixed(2);
-    document.getElementById('ui-bitten').innerText = agent.bitten;
-    document.getElementById('ui-selected').innerText = agent.selectedSlot;
-    for(let i=0; i<5; i++) {
-        let text = agent.inventory[i] ? agent.inventory[i].name : 'Empty';
-        document.getElementById(`ui-slot${i}`).innerText = text;
-        document.getElementById(`ui-slot${i}`).style.color = (i === agent.selectedSlot) ? '#55ff55' : '#aaaaaa';
-    }
-}
-
-container.addEventListener('mousedown', e => { isDragging = true; startX = e.clientX - panX; startY = e.clientY - panY; });
-window.addEventListener('mouseup', () => isDragging = false);
-container.addEventListener('mousemove', e => { if (isDragging) { panX = e.clientX - startX; panY = e.clientY - startY; } });
-
-container.addEventListener('touchstart', e => {
-    if (e.touches.length === 1) {
-        isDragging = true; startX = e.touches[0].clientX - panX; startY = e.touches[0].clientY - panY;
-    } else if (e.touches.length === 2) {
-        initialPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-    }
-});
-container.addEventListener('touchend', () => { isDragging = false; initialPinchDist = null; });
-container.addEventListener('touchmove', e => {
-    if (isDragging && e.touches.length === 1) {
-        panX = e.touches[0].clientX - startX; panY = e.touches[0].clientY - startY;
-    } else if (e.touches.length === 2 && initialPinchDist) {
-        let currentDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-        let factor = currentDist / initialPinchDist;
-        currentScale = Math.max(0.4, Math.min(2.5, currentScale * (factor - 1 * 0.1 + 1)));
-    }
-});
-container.addEventListener('wheel', e => {
-    currentScale = Math.max(0.3, Math.min(2.0, currentScale + (e.deltaY < 0 ? 0.05 : -0.05)));
-});
-
-spawnItems(); populateZombies();
-function mainLoop() {
-    if (agent.health > 0) { update(); draw(); updateUI(); requestAnimationFrame(mainLoop); }
-    else {
-        ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0,0,canvas.width,canvas.height);
-        ctx.fillStyle = "#ff3838"; ctx.font = "24px 'Lucida Console'"; ctx.fillText("AGENT DEAD", canvas.width/2 - 70, canvas.height/2);
-    }
-}
-mainLoop();
+        spawnItemPool(80); populateZombies();
+        function mainLoop() {
+            if (agent.health > 0) { update(); draw(); updateUI(); requestAnimationFrame(mainLoop); }
+            else {
+                ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0,0,canvas.width,canvas.height);
+                ctx.fillStyle = "#ff3838"; ctx.font = "24px 'Lucida Console'"; ctx.fillText("AGENT DEAD", canvas.width/2 - 70, canvas.height/2);
+            }
+        }
+        mainLoop();
     </script>
 </body>
 </html>
