@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zombie Survival AI Sandbox - Precise Replica</title>
+    <title>Zombie Survival AI Sandbox - [v1.3.0]</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -143,8 +143,7 @@
     </div>
 
     <div id="sidebar">
-        <!-- Added version tracker here -->
-        <div class="section-title" style="margin-top:0;">World Info [v1.2.0]</div>
+        <div class="section-title" style="margin-top:0;">World Info [v1.3.0]</div>
         <div class="stat-line">SCORE:<span id="ui-score" class="stat-val">0</span></div>
         <div class="stat-line">Visible Houses:<span id="ui-visible-houses" class="stat-val">0</span></div>
         
@@ -164,8 +163,6 @@
         <div class="inv-slot">SLOT 2 - <span id="ui-slot2">Empty</span></div>
         <div class="inv-slot">SLOT 3 - <span id="ui-slot3">Empty</span></div>
         <div class="inv-slot">SLOT 4 - <span id="ui-slot4">Empty</span></div>
-        <br>
-        <div class="stat-line">Selected Slot:<span id="ui-selected" class="stat-val">0</span></div>
     </div>
 
     <script>
@@ -182,13 +179,7 @@
         let startX, startY;
         let initialPinchDist = null;
 
-        // Sandbox Config Variable Instantiations
-        let CONFIG = {
-            zombieAgro: 120,
-            gameSpeed: 1.0,
-            agentMaxSpeed: 3.5,
-            agentFovDeg: 65
-        };
+        let CONFIG = { zombieAgro: 120, gameSpeed: 1.0, agentMaxSpeed: 3.5, agentFovDeg: 65 };
 
         function resizeCanvas() {
             canvas.width = container.clientWidth;
@@ -212,7 +203,6 @@
             copy() { return new Vector2(this.x, this.y); }
         }
 
-        // --- GLOBAL AGENT ENGINE INSTANTIATION (FIXED COMPILATION BREAK) ---
         const agent = {
             pos: new Vector2(325, 300), velocity: new Vector2(0, 0), acceleration: new Vector2(0, 0),
             heading: 0, fovAngle: Math.PI / 2.3, fovRange: 240,
@@ -220,13 +210,14 @@
             inventory: [null, null, null, null, null], selectedSlot: 0, wanderAngle: 0, shootCooldown: 0, viewPoints: []
         };
 
-        // --- HOUSES CONFIGURATION ---
+        // --- HOUSES WITH GUARANTEED ENTRANCES ---
         const CONST_ENTRANCE_WIDTH = 45; 
         let houses = [];
 
         function initHouses() {
             houses = [
-                { id: 1, x: 200, y: 200, w: 250, h: 200, walls: [], doors: [] }, // Spawn house (Strictly Closed)
+                // ALL houses (including House 1) now explicitly contain doorways
+                { id: 1, x: 200, y: 200, w: 250, h: 200, walls: [], doors: [{ x: 300, y: 400, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'bottom' }] }, 
                 { id: 2, x: 800, y: 150, w: 300, h: 250, walls: [], doors: [{ x: 800, y: 250, w: 10, h: CONST_ENTRANCE_WIDTH, side: 'left' }] },
                 { id: 3, x: 1600, y: 250, w: 280, h: 220, walls: [], doors: [{ x: 1700, y: 250, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'top' }] },
                 { id: 4, x: 1300, y: 900, w: 400, h: 300, walls: [], doors: [{ x: 1450, y: 1200, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'bottom' }, { x: 1700, y: 1000, w: 10, h: CONST_ENTRANCE_WIDTH, side: 'right' }] },
@@ -272,13 +263,9 @@
         let currentlyVisibleHouses = [];
 
         function spawnItemPool(amount = 25) {
-            const types = [
-                { name: 'FOOD (7)', type: 'food' },
-                { name: 'MEDKIT (4)', type: 'medkit' }
-            ];
+            const types = [{ name: 'FOOD (7)', type: 'food' }, { name: 'MEDKIT (4)', type: 'medkit' }];
             for (let i = 0; i < amount; i++) {
-                let eligibleHouses = houses.filter(h => h.id !== 1);
-                let h = eligibleHouses[Math.floor(Math.random() * eligibleHouses.length)];
+                let h = houses[Math.floor(Math.random() * houses.length)];
                 let itemMeta = Math.random() < 0.35 ? 
                     { name: `PISTOL (DPS: ${(Math.random()*3 + 1.2).toFixed(1)}, AMMO: ${Math.floor(Math.random()*6 + 2)})`, type: 'gun' } : 
                     types[Math.floor(Math.random() * types.length)];
@@ -294,6 +281,7 @@
             zombies = []; 
             for(let i=0; i<30; i++) {
                 zombies.push({
+                    id: i,
                     pos: new Vector2(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT),
                     velocity: new Vector2((Math.random()-0.5)*2, (Math.random()-0.5)*2),
                     wanderAngle: Math.random() * Math.PI * 2,
@@ -304,14 +292,13 @@
             zombies.forEach(z => { if(z.pos.dist(agent.pos) < 300) z.pos.add(new Vector2(500, 500)); });
         }
 
-        // --- EXPOSED SANDBOX AI CONTROLLER API ---
+        // --- EXPOSED CONTROLLER API ---
         const AI_API = {
-            getAgentStats: () => ({
-                health: agent.health, energy: agent.energy, stamina: agent.stamina, pos: agent.pos.copy()
-            }),
+            getAgentStats: () => ({ health: agent.health, energy: agent.energy, stamina: agent.stamina, pos: agent.pos.copy() }),
             getVisibleZombies: () => zombies.filter(z => isPointInView(z.pos)),
             getVisibleItems: () => items.filter(i => isPointInView(i.pos)),
             getInventory: () => agent.inventory.map(i => i ? { ...i } : null),
+            getCurrentlyVisibleHouses: () => currentlyVisibleHouses.map(h => ({...h})),
             
             wander: () => {
                 agent.maxSpeed = 2.2; agent.runMode = "FALSE";
@@ -329,7 +316,7 @@
             shootAt: (zombie) => {
                 let gunSlot = agent.inventory.findIndex(item => item && item.type === 'gun');
                 if (gunSlot !== -1) {
-                    agent.selectedSlot = gunSlot; agent.maxSpeed = 0;
+                    agent.maxSpeed = 0;
                     agent.heading = zombie.pos.copy().sub(agent.pos).heading();
                     if (agent.shootCooldown <= 0) {
                         bullets.push({ pos: agent.pos.copy(), vel: zombie.pos.copy().sub(agent.pos).normalize().mult(12) });
@@ -352,13 +339,12 @@
             dropItem: (slotIndex) => { agent.inventory[slotIndex] = null; }
         };
 
-        const initialAICode = `// Edit your Behavior Tree logic below inside this runtime handler loop!
+        const initialAICode = `// Write your custom logic inside this runtime loop!
 const stats = api.getAgentStats();
 const enemies = api.getVisibleZombies();
 const loot = api.getVisibleItems();
 const inv = api.getInventory();
 
-// 1. Critical Vitals Logic
 if (stats.health < 4) {
     let medIdx = inv.findIndex(i => i && i.type === 'medkit');
     if (medIdx !== -1) { api.useItem(medIdx); return; }
@@ -368,25 +354,19 @@ if (stats.energy < 4) {
     if (foodIdx !== -1) { api.useItem(foodIdx); return; }
 }
 
-// 2. Combat / Flee Sequence Nodes
 if (enemies.length > 0) {
     let target = enemies[0];
     let gunIdx = inv.findIndex(i => i && i.type === 'gun');
-    if (gunIdx !== -1) {
-        api.shootAt(target);
-    } else {
-        api.flee(target.pos);
-    }
+    if (gunIdx !== -1) { api.shootAt(target); } 
+    else { api.flee(target.pos); }
     return;
 }
 
-// 3. Loot Collection Sequences
 if (loot.length > 0) {
     api.seek(loot[0].pos);
     return;
 }
 
-// 4. Default Wander
 api.wander();`;
 
         document.getElementById('ai-textarea').value = initialAICode;
@@ -398,7 +378,7 @@ api.wander();`;
                 compiledUserAI = new Function("api", codeText);
                 toggleAIModal(false);
             } catch (err) {
-                alert("Compilation Error detected inside Script: " + err.message);
+                alert("Compilation Error: " + err.message);
             }
         }
 
@@ -473,6 +453,27 @@ api.wander();`;
             return circleCenter.add(displacement).limit(entity.maxForce);
         }
 
+        // --- UPGRADED WALL AVOIDANCE FORCE FOR WANDERING ENEMIES ---
+        function getWallAvoidanceForce(entity) {
+            let avoidance = new Vector2(0, 0);
+            let lookAheadDist = 60;
+            let ray = entity.velocity.copy().normalize().mult(lookAheadDist);
+            let rayEnd = entity.pos.copy().add(ray);
+
+            houses.forEach(h => {
+                h.walls.forEach(w => {
+                    let hit = getIntersection(entity.pos, rayEnd, w.p1, w.p2);
+                    if (hit) {
+                        // Generate a dynamic bouncing reflection force away from the wall normal
+                        let wallVec = w.p2.copy().sub(w.p1).normalize();
+                        let normal = new Vector2(-wallVec.y, wallVec.x);
+                        avoidance.add(normal.mult(entity.maxSpeed * 2));
+                    }
+                });
+            });
+            return avoidance;
+        }
+
         function steerFlee(entity, targetPos) {
             let desired = entity.pos.copy().sub(targetPos);
             if (desired.mag() < 0.1) return new Vector2(0,0);
@@ -517,11 +518,7 @@ api.wander();`;
 
             calculateFOVRays();
 
-            if (compiledUserAI) {
-                compiledUserAI(AI_API);
-            } else {
-                AI_API.wander();
-            }
+            if (compiledUserAI) { compiledUserAI(AI_API); } else { AI_API.wander(); }
 
             agent.velocity.add(agent.acceleration).limit(agent.maxSpeed); 
             agent.pos.add(agent.velocity); 
@@ -537,33 +534,38 @@ api.wander();`;
                 if(broken || bullets[b].pos.x < 0 || bullets[b].pos.x > WORLD_WIDTH || bullets[b].pos.y < 0 || bullets[b].pos.y > WORLD_HEIGHT) { bullets.splice(b,1); }
             }
 
+            // --- FIXED ENEMY STEERING AND AGRO TRACKING ---
             zombies.forEach((z) => {
                 let distToAgent = z.pos.dist(agent.pos);
                 let zForce;
                 
                 if (distToAgent < CONFIG.zombieAgro) {
-                    z.isAgro = true; zForce = steerArrive(z, agent.pos);
+                    z.isAgro = true; 
+                    zForce = steerArrive(z, agent.pos); 
                 } else {
-                    z.isAgro = false; zForce = steerWander(z);
+                    z.isAgro = false; 
+                    zForce = steerWander(z);
+                    // Append continuous wall avoidance pushes to eliminate getting stuck
+                    zForce.add(getWallAvoidanceForce(z));
                 }
                 
                 z.velocity.add(zForce).limit(z.isAgro ? 1.7 : 1.0); 
                 z.pos.add(z.velocity); 
                 processCollisions(z, 10);
                 
-                if(distToAgent < 14) { agent.health = Math.max(0, agent.health - 0.03); agent.bitten = "TRUE"; } else agent.bitten = "FALSE";
+                // Fixed layout bit checking: Does not affect active render positions
+                if(distToAgent < 14) { agent.health = Math.max(0, agent.health - 0.03); agent.bitten = "TRUE"; }
             });
+            
+            // Clean global post-tick bite evaluation pass
+            agent.bitten = zombies.some(z => z.pos.dist(agent.pos) < 15) ? "TRUE" : "FALSE";
 
             for(let i=items.length-1; i>=0; i--) {
                 if(agent.pos.dist(items[i].pos) < 15) {
                     let itemMeta = items[i].meta;
-                    
                     let freeSlot = agent.inventory.findIndex(slot => slot === null);
                     if (freeSlot !== -1) {
-                        if (itemMeta.type === 'gun' && !evalWeaponRetention(itemMeta.name)) {
-                            items.splice(i, 1); 
-                            continue;
-                        }
+                        if (itemMeta.type === 'gun' && !evalWeaponRetention(itemMeta.name)) { items.splice(i, 1); continue; }
                         if(itemMeta.type === 'gun') { let oldGunIdx = agent.inventory.findIndex(slot => slot && slot.type === 'gun'); if(oldGunIdx !== -1) agent.inventory[oldGunIdx] = null; }
                         agent.inventory[freeSlot] = itemMeta; items.splice(i,1); agent.score += 20;
                     }
@@ -584,9 +586,7 @@ api.wander();`;
             ctx.strokeStyle = '#111'; ctx.lineWidth = 10; ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
             ctx.strokeStyle = '#5a9e5a'; ctx.lineWidth = 6;
-            houses.forEach(h => {
-                h.walls.forEach(w => { ctx.beginPath(); ctx.moveTo(w.p1.x, w.p1.y); ctx.lineTo(w.p2.x, w.p2.y); ctx.stroke(); });
-            });
+            houses.forEach(h => { h.walls.forEach(w => { ctx.beginPath(); ctx.moveTo(w.p1.x, w.p1.y); ctx.lineTo(w.p2.x, w.p2.y); ctx.stroke(); }); });
 
             ctx.fillStyle = '#ffd32a';
             items.forEach(i => { ctx.beginPath(); ctx.arc(i.pos.x, i.pos.y, 6, 0, Math.PI * 2); ctx.fill(); });
@@ -624,7 +624,6 @@ api.wander();`;
             document.getElementById('ui-speed').innerText = agent.velocity.mag().toFixed(2);
             document.getElementById('ui-maxspeed').innerText = agent.maxSpeed.toFixed(2);
             document.getElementById('ui-bitten').innerText = agent.bitten;
-            document.getElementById('ui-selected').innerText = agent.selectedSlot;
             for(let i=0; i<5; i++) {
                 let text = agent.inventory[i] ? agent.inventory[i].name : 'Empty';
                 document.getElementById(`ui-slot${i}`).innerText = text;
@@ -632,7 +631,6 @@ api.wander();`;
             }
         }
 
-        // --- SANDBOX SIMULATION MODIFIER HOOKS ---
         function applySettings() {
             CONFIG.zombieAgro = parseFloat(document.getElementById('cfg-agro').value);
             CONFIG.gameSpeed = parseFloat(document.getElementById('cfg-gamespeed').value);
@@ -644,24 +642,14 @@ api.wander();`;
             items = []; bullets = [];
             initHouses();
             
-            // Fixed assignment reference ordering bounds here
-            agent.pos.set(325, 300);
-            agent.velocity.set(0, 0);
-            agent.acceleration.set(0, 0);
-            agent.health = 10.00;
-            agent.energy = 10.00;
-            agent.stamina = 10.00;
-            agent.score = 0;
-            agent.inventory = [null, null, null, null, null];
-            agent.selectedSlot = 0;
+            agent.pos.set(325, 300); agent.velocity.set(0, 0); agent.acceleration.set(0, 0);
+            agent.health = 10.00; agent.energy = 10.00; agent.stamina = 10.00; agent.score = 0;
+            agent.inventory = [null, null, null, null, null]; agent.selectedSlot = 0;
 
-            populateZombies();
-            spawnItemPool(20);
+            populateZombies(); spawnItemPool(20);
         }
 
-        function toggleAIModal(show) {
-            document.getElementById('ai-modal').style.display = show ? 'flex' : 'none';
-        }
+        function toggleAIModal(show) { document.getElementById('ai-modal').style.display = show ? 'flex' : 'none'; }
 
         container.addEventListener('mousedown', e => { if(e.target.tagName !== 'INPUT') { isDragging = true; startX = e.clientX - panX; startY = e.clientY - panY; } });
         window.addEventListener('mouseup', () => isDragging = false);
@@ -680,18 +668,12 @@ api.wander();`;
         });
         container.addEventListener('wheel', e => { currentScale = Math.max(0.3, Math.min(2.0, currentScale + (e.deltaY < 0 ? 0.05 : -0.05))); });
 
-        initHouses();
-        compileCustomAI(); 
-        applySettings();
+        initHouses(); compileCustomAI(); applySettings();
 
         function mainLoop() {
             let updates = Math.round(CONFIG.gameSpeed);
             if (updates < 1 && Math.random() < CONFIG.gameSpeed) updates = 1;
-            
-            for(let step = 0; step < updates; step++) {
-                if (agent.health > 0) update();
-            }
-            
+            for(let step = 0; step < updates; step++) { if (agent.health > 0) update(); }
             draw(); updateUI();
             requestAnimationFrame(mainLoop);
         }
