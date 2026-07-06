@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zombie Survival AI Simulator - Complete Mechanics</title>
+    <title>Zombie Survival AI Sandbox - Precise Replica</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -50,10 +50,55 @@
         .stat-val { color: #ffffff; }
         .inv-slot { color: #aaaaaa; }
 
+        /* Bottom Control Panels */
+        #control-panel {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(26, 26, 26, 0.9);
+            border: 2px solid #333;
+            padding: 12px;
+            font-size: 11px;
+            z-index: 20;
+            max-height: 40vh;
+            overflow-y: auto;
+            width: 290px;
+            color: #aaa;
+        }
+        .control-group { margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .control-group label { margin-right: 5px; }
+        .control-group input, .control-group select { 
+            background: #2b2b2b; border: 1px solid #444; color: #fff; padding: 2px 4px; width: 80px; 
+            font-family: 'Lucida Console', monospace; font-size: 11px;
+        }
+        #ai-box-btn {
+            background: #218c74; border: none; color: #fff; padding: 5px; cursor: pointer; width: 100%;
+            margin-top: 5px; font-family: 'Lucida Console', monospace; font-weight: bold;
+        }
+        #ai-box-btn:hover { background: #2bcbba; }
+        
+        #apply-btn {
+            background: #b33939; border: none; color: #fff; padding: 6px; cursor: pointer; width: 100%;
+            margin-top: 5px; font-family: 'Lucida Console', monospace; font-weight: bold;
+        }
+        #apply-btn:hover { background: #ff5252; }
+
+        /* Code Injector Overlay Window */
+        #ai-modal {
+            display: none; position: fixed; top: 10%; left: 10%; width: 80%; height: 80%;
+            background: rgba(26, 26, 26, 0.95); border: 2px solid #5a9e5a; z-index: 100; padding: 20px;
+            flex-direction: column;
+        }
+        #ai-textarea {
+            flex: 1; background: #111; color: #55ff55; border: 1px solid #333; padding: 10px;
+            font-family: 'Lucida Console', 'Courier New', monospace; font-size: 12px; resize: none; margin-bottom: 15px;
+        }
+
         @media (max-width: 768px) {
             body { flex-direction: column; overflow-y: auto; height: auto; }
-            #simulation-container { height: 60vh; width: 100vw; flex: none; }
+            #simulation-container { height: 65vh; width: 100vw; flex: none; }
             #sidebar { width: 100vw; height: auto; border-left: none; border-top: 2px solid #333; }
+            #control-panel { position: static; width: 100vw; max-height: none; box-sizing: border-box; border: none; border-top: 2px solid #333; }
         }
     </style>
 </head>
@@ -61,6 +106,40 @@
 
     <div id="simulation-container">
         <canvas id="gameCanvas"></canvas>
+        
+        <!-- RUNTIME CONFIGURATION MENU -->
+        <div id="control-panel">
+            <div style="font-weight:bold; color:#888; border-bottom:1px solid #333; margin-bottom:8px; text-transform:uppercase;">Sandbox Controls</div>
+            <div class="control-group">
+                <label>Zombie Agro Radius:</label>
+                <input type="number" id="cfg-agro" value="120" step="10">
+            </div>
+            <div class="control-group">
+                <label>Game Speed Config:</label>
+                <input type="number" id="cfg-gamespeed" value="1.0" step="0.1">
+            </div>
+            <div class="control-group">
+                <label>Agent Max Speed:</label>
+                <input type="number" id="cfg-agentspeed" value="3.5" step="0.1">
+            </div>
+            <div class="control-group">
+                <label>Agent View Cone (°):</label>
+                <input type="number" id="cfg-agentfov" value="65" step="5">
+            </div>
+            <button id="ai-box-btn" onclick="toggleAIModal(true)">✏️ Edit Agent AI Logic</button>
+            <button id="apply-btn" onclick="applySettings()">🔄 Apply &amp; Reset Simulation</button>
+        </div>
+    </div>
+
+    <!-- AI RUNTIME CODE EDITOR MODAL -->
+    <div id="ai-modal">
+        <div style="margin-bottom: 10px; font-weight: bold; color: #5a9e5a;">📝 LIVE HERO AI INTERFACE (JavaScript Editor)</div>
+        <div style="font-size: 11px; margin-bottom: 10px; color: #888;">Modify code below. The system automatically pipes in an execution context object containing current sandbox perception nodes.</div>
+        <textarea id="ai-textarea"></textarea>
+        <div style="display:flex; gap:10px;">
+            <button id="apply-btn" style="margin:0; flex:1;" onclick="compileCustomAI()">💾 Inject Code &amp; Resume</button>
+            <button id="apply-btn" style="margin:0; flex:none; width:120px; background:#444;" onclick="toggleAIModal(false)">Cancel</button>
+        </div>
     </div>
 
     <div id="sidebar">
@@ -69,12 +148,12 @@
         <div class="stat-line">Visible Houses:<span id="ui-visible-houses" class="stat-val">0</span></div>
         
         <div class="section-title">Agent Info</div>
-        <div class="stat-line">Health:<span id="ui-health" class="stat-val">10</span></div>
-        <div class="stat-line">Energy:<span id="ui-energy" class="stat-val">20</span></div>
-        <div class="stat-line">Stamina:<span id="ui-stamina" class="stat-val">18.00</span></div>
+        <div class="stat-line">Health:<span id="ui-health" class="stat-val">10.00</span></div>
+        <div class="stat-line">Energy:<span id="ui-energy" class="stat-val">10.00</span></div>
+        <div class="stat-line">Stamina:<span id="ui-stamina" class="stat-val">10.00</span></div>
         <div class="stat-line">RunMode:<span id="ui-runmode" class="stat-val">FALSE</span></div>
-        <div class="stat-line">Current Spd:<span id="ui-speed" class="stat-val">7.50</span></div>
-        <div class="stat-line">Max Spd:<span id="ui-maxspeed" class="stat-val">7.50</span></div>
+        <div class="stat-line">Current Spd:<span id="ui-speed" class="stat-val">0.00</span></div>
+        <div class="stat-line">Max Spd:<span id="ui-maxspeed" class="stat-val">3.50</span></div>
         <div class="stat-line">Bitten:<span id="ui-bitten" class="stat-val">FALSE</span></div>
         <div class="stat-line">Difficulty:<span id="ui-difficulty" class="stat-val">0.6</span></div>
 
@@ -102,6 +181,14 @@
         let startX, startY;
         let initialPinchDist = null;
 
+        // Sandbox Config Variable Instantiations
+        let CONFIG = {
+            zombieAgro: 120,
+            gameSpeed: 1.0,
+            agentMaxSpeed: 3.5,
+            agentFovDeg: 65
+        };
+
         function resizeCanvas() {
             canvas.width = container.clientWidth;
             canvas.height = container.clientHeight;
@@ -124,27 +211,26 @@
             copy() { return new Vector2(this.x, this.y); }
         }
 
-        // --- HOUSES WITH GENERATED PROPERTIES & CONTROLLED ENTRANCES ---
-        const houses = [
-            { id: 1, x: 200, y: 200, w: 400, h: 300, walls: [], doors: [{ x: 380, y: 500, w: 40, h: 10, side: 'bottom' }] },
-            { id: 2, x: 1000, y: 150, w: 500, h: 400, walls: [], doors: [{ x: 1000, y: 300, w: 10, h: 40, side: 'left' }, { x: 1300, y: 150, w: 40, h: 10, side: 'top' }] },
-            { id: 3, x: 2200, y: 250, w: 350, h: 300, walls: [], doors: [{ x: 2320, y: 250, w: 40, h: 10, side: 'top' }] },
-            { id: 4, x: 1500, y: 1100, w: 600, h: 450, walls: [], doors: [{ x: 1750, y: 1550, w: 50, h: 10, side: 'bottom' }, { x: 2100, y: 1300, w: 10, h: 50, side: 'right' }] },
-            { id: 5, x: 500, y: 1400, w: 450, h: 400, walls: [], doors: [{ x: 950, y: 1550, w: 10, h: 40, side: 'right' }] },
-            { id: 6, x: 2800, y: 1600, w: 500, h: 400, walls: [], doors: [{ x: 3000, y: 2000, w: 50, h: 10, side: 'bottom' }] }
-        ];
+        // --- FIXED COMPACT HOUSES WITH PRECISE ENTRANCE SPANS ---
+        const CONST_ENTRANCE_WIDTH = 45; // Fixed static size ensuring clean clearances
+        let houses = [];
 
-        // Assign computed center points and specific doorway point nodes
-        houses.forEach(h => {
-            h.center = new Vector2(h.x + h.w / 2, h.y + h.h / 2);
-            h.entrancePoints = h.doors.map(d => {
-                return new Vector2(d.x + d.w / 2, d.y + d.h / 2);
-            });
-        });
+        function initHouses() {
+            houses = [
+                { id: 1, x: 200, y: 200, w: 250, h: 200, walls: [], doors: [] }, // Spawn house (Strictly Closed)
+                { id: 2, x: 800, y: 150, w: 300, h: 250, walls: [], doors: [{ x: 800, y: 250, w: 10, h: CONST_ENTRANCE_WIDTH, side: 'left' }] },
+                { id: 3, x: 1600, y: 250, w: 280, h: 220, walls: [], doors: [{ x: 1700, y: 250, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'top' }] },
+                { id: 4, x: 1300, y: 900, w: 400, h: 300, walls: [], doors: [{ x: 1450, y: 1200, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'bottom' }, { x: 1700, y: 1000, w: 10, h: CONST_ENTRANCE_WIDTH, side: 'right' }] },
+                { id: 5, x: 400, y: 1100, w: 300, h: 250, walls: [], doors: [{ x: 700, y: 1200, w: 10, h: CONST_ENTRANCE_WIDTH, side: 'right' }] },
+                { id: 6, x: 2300, y: 1200, w: 350, h: 280, walls: [], doors: [{ x: 2450, y: 1480, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'bottom' }] }
+            ];
 
-        function structureWalls() {
             houses.forEach(h => {
-                h.walls = [];
+                h.center = new Vector2(h.x + h.w / 2, h.y + h.h / 2);
+                h.entrancePoints = h.doors.map(d => new Vector2(d.x + d.w / 2, d.y + d.h / 2));
+            });
+
+            houses.forEach(h => {
                 let rawWalls = [
                     { p1: new Vector2(h.x, h.y), p2: new Vector2(h.x + h.w, h.y), side: 'top' },
                     { p1: new Vector2(h.x + h.w, h.y), p2: new Vector2(h.x + h.w, h.y + h.h), side: 'right' },
@@ -172,21 +258,22 @@
                 });
             });
         }
-        structureWalls();
 
         let items = []; let zombies = []; let bullets = [];
         let currentlyVisibleHouses = [];
 
-        // Dynamic heavy density spawner
-        function spawnItemPool(amount = 60) {
+        // Decreased overall layout spawn densities
+        function spawnItemPool(amount = 25) {
             const types = [
-                { name: 'FOOD (7)', type: 'food', color: '#ffd32a' },
-                { name: 'MEDKIT (4)', type: 'medkit', color: '#ff5e57' }
+                { name: 'FOOD (7)', type: 'food' },
+                { name: 'MEDKIT (4)', type: 'medkit' }
             ];
             for (let i = 0; i < amount; i++) {
-                let h = houses[Math.floor(Math.random() * houses.length)];
-                let itemMeta = Math.random() < 0.3 ? 
-                    { name: `PISTOL (DPS: ${(Math.random()*3 + 1.2).toFixed(1)}, AMMO: ${Math.floor(Math.random()*8 + 3)})`, type: 'gun', color: '#0be881' } : 
+                // Spawn items primarily inside houses 2 to 6
+                let eligibleHouses = houses.filter(h => h.id !== 1);
+                let h = eligibleHouses[Math.floor(Math.random() * eligibleHouses.length)];
+                let itemMeta = Math.random() < 0.35 ? 
+                    { name: `PISTOL (DPS: ${(Math.random()*3 + 1.2).toFixed(1)}, AMMO: ${Math.floor(Math.random()*6 + 2)})`, type: 'gun' } : 
                     types[Math.floor(Math.random() * types.length)];
                 
                 items.push({
@@ -197,26 +284,124 @@
         }
 
         function populateZombies() {
-            for(let i=0; i<45; i++) {
+            zombies = []; // completely flash clear on system clean triggers
+            for(let i=0; i<30; i++) {
                 zombies.push({
                     pos: new Vector2(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT),
                     velocity: new Vector2((Math.random()-0.5)*2, (Math.random()-0.5)*2),
                     wanderAngle: Math.random() * Math.PI * 2,
                     health: 35,
-                    agroRadius: 180, // Custom detection threshold per unit
                     isAgro: false
                 });
             }
-            // Shove away from starting point
-            zombies.forEach(z => { if(z.pos.dist(agent.pos) < 300) z.pos.add(new Vector2(400, 400)); });
+            zombies.forEach(z => { if(z.pos.dist(agent.pos) < 300) z.pos.add(new Vector2(500, 500)); });
         }
 
-        const agent = {
-            pos: new Vector2(400, 450), velocity: new Vector2(0, 0), acceleration: new Vector2(0, 0),
-            maxSpeed: 3.5, maxForce: 0.25, heading: 0, fovAngle: Math.PI / 2.3, fovRange: 240,
-            health: 10, energy: 20, stamina: 18, runMode: "FALSE", bitten: "FALSE", score: 0,
-            inventory: [null, null, null, null, null], selectedSlot: 0, wanderAngle: 0, shootCooldown: 0, viewPoints: []
+        // --- EXPOSED SANDBOX AI CONTROLLER API ---
+        const AI_API = {
+            getAgentStats: () => ({
+                health: agent.health, energy: agent.energy, stamina: agent.stamina, pos: agent.pos.copy()
+            }),
+            getVisibleZombies: () => zombies.filter(z => isPointInView(z.pos)),
+            getVisibleItems: () => items.filter(i => isPointInView(i.pos)),
+            getInventory: () => agent.inventory.map(i => i ? { ...i } : null),
+            
+            wander: () => {
+                agent.maxSpeed = 2.2; agent.runMode = "FALSE";
+                agent.acceleration.add(steerWander(agent));
+            },
+            seek: (targetVector) => {
+                agent.maxSpeed = CONFIG.agentMaxSpeed; agent.runMode = "FALSE";
+                agent.acceleration.add(steerArrive(agent, targetVector));
+            },
+            flee: (targetVector) => {
+                agent.maxSpeed = CONFIG.agentMaxSpeed * 1.3; agent.runMode = "TRUE";
+                if (agent.stamina > 0) agent.stamina -= 0.05;
+                agent.acceleration.add(steerFlee(agent, targetVector));
+            },
+            shootAt: (zombie) => {
+                let gunSlot = agent.inventory.findIndex(item => item && item.type === 'gun');
+                if (gunSlot !== -1) {
+                    agent.selectedSlot = gunSlot; agent.maxSpeed = 0;
+                    agent.heading = zombie.pos.copy().sub(agent.pos).heading();
+                    if (agent.shootCooldown <= 0) {
+                        bullets.push({ pos: agent.pos.copy(), vel: zombie.pos.copy().sub(agent.pos).normalize().mult(12) });
+                        agent.shootCooldown = 20;
+                        let ammo = parseInt(agent.inventory[gunSlot].name.match(/AMMO:\s*([0-9]+)/)[1]) - 1;
+                        let dps = agent.inventory[gunSlot].name.match(/DPS:\s*([0-9.]+)/)[1];
+                        if (ammo <= 0) agent.inventory[gunSlot] = null;
+                        else agent.inventory[gunSlot].name = `PISTOL (DPS: ${dps}, AMMO: ${ammo})`;
+                    }
+                }
+            },
+            useItem: (slotIndex) => {
+                let target = agent.inventory[slotIndex];
+                if (target) {
+                    if (target.type === 'medkit') agent.health = Math.min(10, agent.health + 4);
+                    if (target.type === 'food') agent.energy = Math.min(10, agent.energy + 4);
+                    agent.inventory[slotIndex] = null;
+                }
+            },
+            dropItem: (slotIndex) => { agent.inventory[slotIndex] = null; }
         };
+
+        // Default Behavior Tree code loaded initially into textbox string storage hooks
+        const initialAICode = `// Edit your Behavior Tree logic below inside this runtime handler loop!
+const stats = api.getAgentStats();
+const enemies = api.getVisibleZombies();
+const loot = api.getVisibleItems();
+const inv = api.getInventory();
+
+// 1. Critical Vitals Logic
+if (stats.health < 4) {
+    let medIdx = inv.findIndex(i => i && i.type === 'medkit');
+    if (medIdx !== -1) { api.useItem(medIdx); return; }
+}
+if (stats.energy < 4) {
+    let foodIdx = inv.findIndex(i => i && i.type === 'food');
+    if (foodIdx !== -1) { api.useItem(foodIdx); return; }
+}
+
+// 2. Combat / Flee Sequence Nodes
+if (enemies.length > 0) {
+    let target = enemies[0];
+    let gunIdx = inv.findIndex(i => i && i.type === 'gun');
+    if (gunIdx !== -1) {
+        api.shootAt(target);
+    } else {
+        api.flee(target.pos);
+    }
+    return;
+}
+
+// 3. Loot Collection Sequences
+if (loot.length > 0) {
+    api.seek(loot[0].pos);
+    return;
+}
+
+// 4. Default Wander
+api.wander();`;
+
+        document.getElementById('ai-textarea').value = initialAICode;
+        let compiledUserAI = null;
+
+        function compileCustomAI() {
+            try {
+                let codeText = document.getElementById('ai-textarea').value;
+                compiledUserAI = new Function("api", codeText);
+                toggleAIModal(false);
+            } catch (err) {
+                alert("Compilation Error detected inside Script: " + err.message);
+            }
+        }
+
+        const agentObj = {
+            pos: new Vector2(325, 300), velocity: new Vector2(0, 0), acceleration: new Vector2(0, 0),
+            heading: 0, health: 10.00, energy: 10.00, stamina: 10.00, runMode: "FALSE", bitten: "FALSE",
+            score: 0, inventory: [null, null, null, null, null], selectedSlot: 0, wanderAngle: 0, shootCooldown: 0, viewPoints: []
+        };
+        Object.assign(agent, agentObj);
 
         function getIntersection(p1, p2, p3, p4) {
             let denominator = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
@@ -230,12 +415,10 @@
         }
 
         function calculateFOVRays() {
-            agent.viewPoints = [];
-            currentlyVisibleHouses = [];
+            agent.viewPoints = []; currentlyVisibleHouses = [];
             const numRays = 35;
             const startAngle = agent.heading - agent.fovAngle / 2;
             const angleStep = agent.fovAngle / (numRays - 1);
-
             let detectedHouseIds = new Set();
 
             for (let i = 0; i < numRays; i++) {
@@ -254,8 +437,6 @@
                 });
                 agent.viewPoints.push(closestIntersect);
             }
-            
-            // Populate the active array of visible infrastructure
             houses.forEach(h => {
                 if (detectedHouseIds.has(h.id)) {
                     currentlyVisibleHouses.push({ id: h.id, center: h.center.copy(), entrances: h.entrancePoints.map(p => p.copy()) });
@@ -331,51 +512,24 @@
         }
 
         function update() {
-            if (agent.energy > 0) agent.energy -= 0.003;
+            if (agent.energy > 0) agent.energy -= 0.0015;
+            if (agent.energy <= 0) agent.health = Math.max(0, agent.health - 0.002);
             if (agent.shootCooldown > 0) agent.shootCooldown--;
 
             calculateFOVRays();
-            let visibleZombies = zombies.filter(z => isPointInView(z.pos));
-            let visibleItems = items.filter(i => isPointInView(i.pos));
-            let gunSlot = agent.inventory.findIndex(i => i && i.type === 'gun');
-            let steerForce = new Vector2(0,0);
 
-            if (visibleZombies.length > 0) {
-                let target = visibleZombies[0];
-                if (gunSlot !== -1 && parseInt(agent.inventory[gunSlot].name.match(/AMMO:\s*([0-9]+)/)[1]) > 0) {
-                    agent.selectedSlot = gunSlot; agent.maxSpeed = 0;
-                    agent.heading = target.pos.copy().sub(agent.pos).heading();
-                    if (agent.shootCooldown <= 0) {
-                        bullets.push({ pos: agent.pos.copy(), vel: target.pos.copy().sub(agent.pos).normalize().mult(12) });
-                        agent.shootCooldown = 20;
-                        let ammo = parseInt(agent.inventory[gunSlot].name.match(/AMMO:\s*([0-9]+)/)[1]) - 1;
-                        let dps = agent.inventory[gunSlot].name.match(/DPS:\s*([0-9.]+)/)[1];
-                        if (ammo <= 0) agent.inventory[gunSlot] = null;
-                        else agent.inventory[gunSlot].name = `PISTOL (DPS: ${dps}, AMMO: ${ammo})`;
-                    }
-                } else {
-                    agent.maxSpeed = 4.0; agent.runMode = "TRUE"; if(agent.stamina > 0) agent.stamina -= 0.05;
-                    steerForce = steerFlee(agent, target.pos);
-                }
-            } else if (agent.health < 5 && agent.inventory.some(i => i && i.type === 'medkit')) {
-                let idx = agent.inventory.findIndex(i => i && i.type === 'medkit'); agent.health = Math.min(10, agent.health + 4); agent.inventory[idx] = null;
-            } else if (agent.energy < 6 && agent.inventory.some(i => i && i.type === 'food')) {
-                let idx = agent.inventory.findIndex(i => i && i.type === 'food'); agent.energy = Math.min(20, agent.energy + 8); agent.inventory[idx] = null;
-            } else if (visibleItems.length > 0) {
-                agent.maxSpeed = 2.6; agent.runMode = "FALSE"; if(agent.stamina < 18) agent.stamina += 0.02;
-                steerForce = steerArrive(agent, visibleItems[0].pos);
+            // Run user AI if loaded, else use fallback logic block
+            if (compiledUserAI) {
+                compiledUserAI(AI_API);
             } else {
-                agent.maxSpeed = 2.2; agent.runMode = "FALSE"; if(agent.stamina < 18) agent.stamina += 0.03;
-                steerForce = steerWander(agent);
+                AI_API.wander();
             }
 
-            agent.acceleration.add(steerForce); 
             agent.velocity.add(agent.acceleration).limit(agent.maxSpeed); 
             agent.pos.add(agent.velocity); 
             agent.acceleration.mult(0);
             
             if (agent.velocity.mag() > 0.1 && agent.maxSpeed > 0) agent.heading = agent.velocity.heading();
-
             processCollisions(agent, 10);
 
             for(let b=bullets.length-1; b>=0; b--) {
@@ -385,41 +539,40 @@
                 if(broken || bullets[b].pos.x < 0 || bullets[b].pos.x > WORLD_WIDTH || bullets[b].pos.y < 0 || bullets[b].pos.y > WORLD_HEIGHT) { bullets.splice(b,1); }
             }
 
-            zombies.forEach((z, idx) => {
-                if(z.health <= 0) { zombies.splice(idx,1); agent.score+=40; return; }
-                
-                // Aggro detection radius tracking logic
+            zombies.forEach((z) => {
                 let distToAgent = z.pos.dist(agent.pos);
                 let zForce;
                 
-                if (distToAgent < z.agroRadius) {
-                    z.isAgro = true;
-                    zForce = steerArrive(z, agent.pos); // Run and attack behavior
+                if (distToAgent < CONFIG.zombieAgro) {
+                    z.isAgro = true; zForce = steerArrive(z, agent.pos);
                 } else {
-                    z.isAgro = false;
-                    zForce = steerWander(z);
+                    z.isAgro = false; zForce = steerWander(z);
                 }
                 
-                z.velocity.add(zForce).limit(z.isAgro ? 1.9 : 1.1); 
+                z.velocity.add(zForce).limit(z.isAgro ? 1.7 : 1.0); 
                 z.pos.add(z.velocity); 
                 processCollisions(z, 10);
                 
-                if(distToAgent < 14) { agent.health = Math.max(0, agent.health - 0.04); agent.bitten = "TRUE"; } else agent.bitten = "FALSE";
+                if(distToAgent < 14) { agent.health = Math.max(0, agent.health - 0.03); agent.bitten = "TRUE"; } else agent.bitten = "FALSE";
             });
 
             for(let i=items.length-1; i>=0; i--) {
                 if(agent.pos.dist(items[i].pos) < 15) {
                     let itemMeta = items[i].meta;
-                    if (itemMeta.type === 'gun' && !evalWeaponRetention(itemMeta.name)) { items.splice(i, 1); continue; }
+                    
+                    // Decider step: If inventory is totally packed, user evaluates retention or dumps instantly
                     let freeSlot = agent.inventory.findIndex(slot => slot === null);
                     if (freeSlot !== -1) {
+                        if (itemMeta.type === 'gun' && !evalWeaponRetention(itemMeta.name)) {
+                            items.splice(i, 1); // Auto throw away poor weapons
+                            continue;
+                        }
                         if(itemMeta.type === 'gun') { let oldGunIdx = agent.inventory.findIndex(slot => slot && slot.type === 'gun'); if(oldGunIdx !== -1) agent.inventory[oldGunIdx] = null; }
                         agent.inventory[freeSlot] = itemMeta; items.splice(i,1); agent.score += 20;
                     }
                 }
             }
-            if(items.length < 20) spawnItemPool(30);
-            if(zombies.length < 15) populateZombies();
+            if(items.length < 12) spawnItemPool(15);
         }
 
         function draw() {
@@ -428,37 +581,26 @@
 
             let targetCamX = -agent.pos.x * currentScale + canvas.width / 2;
             let targetCamY = -agent.pos.y * currentScale + canvas.height / 2;
-
             ctx.translate(targetCamX + panX, targetCamY + panY);
             ctx.scale(currentScale, currentScale);
 
             ctx.strokeStyle = '#111'; ctx.lineWidth = 10; ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-            // Draw Houses
             ctx.strokeStyle = '#5a9e5a'; ctx.lineWidth = 6;
             houses.forEach(h => {
-                h.walls.forEach(w => {
-                    ctx.beginPath(); ctx.moveTo(w.p1.x, w.p1.y); ctx.lineTo(w.p2.x, w.p2.y); ctx.stroke();
-                });
+                h.walls.forEach(w => { ctx.beginPath(); ctx.moveTo(w.p1.x, w.p1.y); ctx.lineTo(w.p2.x, w.p2.y); ctx.stroke(); });
             });
 
-            items.forEach(i => { ctx.fillStyle = i.meta.color; ctx.beginPath(); ctx.arc(i.pos.x, i.pos.y, 6, 0, Math.PI * 2); ctx.fill(); });
+            // ALL WORLD PICKUPS DRAWN EXCLUSIVELY AS IDENTICAL UNKNOWN YELLOW DOTS
+            ctx.fillStyle = '#ffd32a';
+            items.forEach(i => { ctx.beginPath(); ctx.arc(i.pos.x, i.pos.y, 6, 0, Math.PI * 2); ctx.fill(); });
+            
             bullets.forEach(b => { ctx.fillStyle = '#f5cd79'; ctx.beginPath(); ctx.arc(b.pos.x, b.pos.y, 3, 0, Math.PI * 2); ctx.fill(); });
             
-            // Draw Enemies and their Dashed Aggro Indicator Rings
             zombies.forEach(z => {
-                // Dashed agro detector circle
-                ctx.strokeStyle = z.isAgro ? 'rgba(255, 56, 56, 0.35)' : 'rgba(150, 150, 150, 0.15)';
-                ctx.lineWidth = 1.5;
-                ctx.setLineDash([6, 6]);
-                ctx.beginPath();
-                ctx.arc(z.pos.x, z.pos.y, z.agroRadius, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.setLineDash([]); // clear dash
-
-                // Enemy Body Core
-                ctx.fillStyle = '#b33939';
-                ctx.beginPath(); ctx.arc(z.pos.x, z.pos.y, 10, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = z.isAgro ? 'rgba(255, 56, 56, 0.4)' : 'rgba(150, 150, 150, 0.15)';
+                ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.arc(z.pos.x, z.pos.y, CONFIG.zombieAgro, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+                ctx.fillStyle = '#b33939'; ctx.beginPath(); ctx.arc(z.pos.x, z.pos.y, 10, 0, Math.PI * 2); ctx.fill();
             });
 
             if (agent.viewPoints.length > 0 && !isNaN(agent.pos.x)) {
@@ -480,9 +622,9 @@
         function updateUI() {
             document.getElementById('ui-score').innerText = agent.score;
             document.getElementById('ui-visible-houses').innerText = currentlyVisibleHouses.length;
-            document.getElementById('ui-health').innerText = Math.max(0, Math.ceil(agent.health));
-            document.getElementById('ui-energy').innerText = isNaN(agent.energy) ? "0.0" : agent.energy.toFixed(1);
-            document.getElementById('ui-stamina').innerText = isNaN(agent.stamina) ? "0.00" : agent.stamina.toFixed(2);
+            document.getElementById('ui-health').innerText = Math.max(0, agent.health).toFixed(2);
+            document.getElementById('ui-energy').innerText = Math.max(0, agent.energy).toFixed(2);
+            document.getElementById('ui-stamina').innerText = Math.max(0, agent.stamina).toFixed(2);
             document.getElementById('ui-runmode').innerText = agent.runMode;
             document.getElementById('ui-speed').innerText = agent.velocity.mag().toFixed(2);
             document.getElementById('ui-maxspeed').innerText = agent.maxSpeed.toFixed(2);
@@ -495,38 +637,65 @@
             }
         }
 
-        container.addEventListener('mousedown', e => { isDragging = true; startX = e.clientX - panX; startY = e.clientY - panY; });
+        // --- SANDBOX SIMULATION MODIFIER HOOKS ---
+        function applySettings() {
+            CONFIG.zombieAgro = parseFloat(document.getElementById('cfg-agro').value);
+            CONFIG.gameSpeed = parseFloat(document.getElementById('cfg-gamespeed').value);
+            CONFIG.agentMaxSpeed = parseFloat(document.getElementById('cfg-agentspeed').value);
+            CONFIG.agentFovDeg = parseFloat(document.getElementById('cfg-agentfov').value);
+            
+            // Re-apply agent conversions
+            agent.fovAngle = (CONFIG.agentFovDeg * Math.PI) / 180;
+
+            // Full Map Simulation Hard Reset
+            items = []; bullets = [];
+            initHouses();
+            Object.assign(agent, {
+                pos: new Vector2(325, 300), velocity: new Vector2(0,0), acceleration: new Vector2(0,0),
+                health: 10.00, energy: 10.00, stamina: 10.00, score: 0, inventory: [null,null,null,null,null], selectedSlot: 0
+            });
+            populateZombies();
+            spawnItemPool(20);
+        }
+
+        function toggleAIModal(show) {
+            document.getElementById('ai-modal').style.display = show ? 'flex' : 'none';
+        }
+
+        // Input Bindings
+        container.addEventListener('mousedown', e => { if(e.target.tagName !== 'INPUT') { isDragging = true; startX = e.clientX - panX; startY = e.clientY - panY; } });
         window.addEventListener('mouseup', () => isDragging = false);
         container.addEventListener('mousemove', e => { if (isDragging) { panX = e.clientX - startX; panY = e.clientY - startY; } });
-
         container.addEventListener('touchstart', e => {
-            if (e.touches.length === 1) {
-                isDragging = true; startX = e.touches[0].clientX - panX; startY = e.touches[0].clientY - panY;
-            } else if (e.touches.length === 2) {
-                initialPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-            }
+            if (e.touches.length === 1) { isDragging = true; startX = e.touches[0].clientX - panX; startY = e.touches[0].clientY - panY; }
+            else if (e.touches.length === 2) { initialPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }
         });
         container.addEventListener('touchend', () => { isDragging = false; initialPinchDist = null; });
         container.addEventListener('touchmove', e => {
-            if (isDragging && e.touches.length === 1) {
-                panX = e.touches[0].clientX - startX; panY = e.touches[0].clientY - startY;
-            } else if (e.touches.length === 2 && initialPinchDist) {
+            if (isDragging && e.touches.length === 1) { panX = e.touches[0].clientX - startX; panY = e.touches[0].clientY - startY; }
+            else if (e.touches.length === 2 && initialPinchDist) {
                 let currentDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-                let factor = currentDist / initialPinchDist;
-                currentScale = Math.max(0.4, Math.min(2.5, currentScale * (factor - 1 * 0.1 + 1)));
+                currentScale = Math.max(0.4, Math.min(2.5, currentScale * (currentDist / initialPinchDist)));
             }
         });
-        container.addEventListener('wheel', e => {
-            currentScale = Math.max(0.3, Math.min(2.0, currentScale + (e.deltaY < 0 ? 0.05 : -0.05)));
-        });
+        container.addEventListener('wheel', e => { currentScale = Math.max(0.3, Math.min(2.0, currentScale + (e.deltaY < 0 ? 0.05 : -0.05))); });
 
-        spawnItemPool(80); populateZombies();
+        // Bootstrap Core Simulation
+        initHouses();
+        compileCustomAI(); // Initialize runtime wrapper execution bindings
+        applySettings();
+
         function mainLoop() {
-            if (agent.health > 0) { update(); draw(); updateUI(); requestAnimationFrame(mainLoop); }
-            else {
-                ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0,0,canvas.width,canvas.height);
-                ctx.fillStyle = "#ff3838"; ctx.font = "24px 'Lucida Console'"; ctx.fillText("AGENT DEAD", canvas.width/2 - 70, canvas.height/2);
+            // Apply speed dilation multipliers to clock out frame updates safely
+            let updates = Math.round(CONFIG.gameSpeed);
+            if (updates < 1 && Math.random() < CONFIG.gameSpeed) updates = 1;
+            
+            for(let step = 0; step < updates; step++) {
+                if (agent.health > 0) update();
             }
+            
+            draw(); updateUI();
+            requestAnimationFrame(mainLoop);
         }
         mainLoop();
     </script>
