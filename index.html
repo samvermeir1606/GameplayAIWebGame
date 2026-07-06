@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zombie Survival AI Sandbox - [v1.3.0]</title>
+    <title>Zombie Survival AI Sandbox - [v1.4.0]</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -143,7 +143,7 @@
     </div>
 
     <div id="sidebar">
-        <div class="section-title" style="margin-top:0;">World Info [v1.3.0]</div>
+        <div class="section-title" style="margin-top:0;">World Info [v1.4.0]</div>
         <div class="stat-line">SCORE:<span id="ui-score" class="stat-val">0</span></div>
         <div class="stat-line">Visible Houses:<span id="ui-visible-houses" class="stat-val">0</span></div>
         
@@ -210,55 +210,61 @@
             inventory: [null, null, null, null, null], selectedSlot: 0, wanderAngle: 0, shootCooldown: 0, viewPoints: []
         };
 
-        // --- HOUSES WITH GUARANTEED ENTRANCES ---
-        const CONST_ENTRANCE_WIDTH = 45; 
-        let houses = [];
+       // --- HOUSES WITH GUARANTEED ENTRANCES (FIXED WALL DIRECTION BUG) ---
+const CONST_ENTRANCE_WIDTH = 45; 
+let houses = [];
 
-        function initHouses() {
-            houses = [
-                // ALL houses (including House 1) now explicitly contain doorways
-                { id: 1, x: 200, y: 200, w: 250, h: 200, walls: [], doors: [{ x: 300, y: 400, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'bottom' }] }, 
-                { id: 2, x: 800, y: 150, w: 300, h: 250, walls: [], doors: [{ x: 800, y: 250, w: 10, h: CONST_ENTRANCE_WIDTH, side: 'left' }] },
-                { id: 3, x: 1600, y: 250, w: 280, h: 220, walls: [], doors: [{ x: 1700, y: 250, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'top' }] },
-                { id: 4, x: 1300, y: 900, w: 400, h: 300, walls: [], doors: [{ x: 1450, y: 1200, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'bottom' }, { x: 1700, y: 1000, w: 10, h: CONST_ENTRANCE_WIDTH, side: 'right' }] },
-                { id: 5, x: 400, y: 1100, w: 300, h: 250, walls: [], doors: [{ x: 700, y: 1200, w: 10, h: CONST_ENTRANCE_WIDTH, side: 'right' }] },
-                { id: 6, x: 2300, y: 1200, w: 350, h: 280, walls: [], doors: [{ x: 2450, y: 1480, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'bottom' }] }
-            ];
+function initHouses() {
+    houses = [
+        // Adjusted all door positions to be perfectly centered and strictly inside house dimensions
+        { id: 1, x: 200, y: 200, w: 250, h: 200, walls: [], doors: [{ x: 300, y: 400, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'bottom' }] }, 
+        { id: 2, x: 800, y: 150, w: 300, h: 250, walls: [], doors: [{ x: 800, y: 250, w: 10, h: CONST_ENTRANCE_WIDTH, side: 'left' }, { x: 930, y: 150, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'top' }] },
+        { id: 3, x: 1600, y: 250, w: 280, h: 220, walls: [], doors: [{ x: 1700, y: 250, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'top' }] },
+        { id: 4, x: 1300, y: 900, w: 400, h: 300, walls: [], doors: [{ x: 1450, y: 1200, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'bottom' }, { x: 1700, y: 1020, w: 10, h: CONST_ENTRANCE_WIDTH, side: 'right' }] },
+        { id: 5, x: 400, y: 1100, w: 300, h: 250, walls: [], doors: [{ x: 700, y: 1200, w: 10, h: CONST_ENTRANCE_WIDTH, side: 'right' }] },
+        { id: 6, x: 2300, y: 1200, w: 350, h: 280, walls: [], doors: [{ x: 2450, y: 1480, w: CONST_ENTRANCE_WIDTH, h: 10, side: 'bottom' }] }
+    ];
 
-            houses.forEach(h => {
-                h.center = new Vector2(h.x + h.w / 2, h.y + h.h / 2);
-                h.entrancePoints = h.doors.map(d => new Vector2(d.x + d.w / 2, d.y + d.h / 2));
-            });
+    houses.forEach(h => {
+        h.center = new Vector2(h.x + h.w / 2, h.y + h.h / 2);
+        h.entrancePoints = h.doors.map(d => new Vector2(d.x + d.w / 2, d.y + d.h / 2));
+    });
 
-            houses.forEach(h => {
-                let rawWalls = [
-                    { p1: new Vector2(h.x, h.y), p2: new Vector2(h.x + h.w, h.y), side: 'top' },
-                    { p1: new Vector2(h.x + h.w, h.y), p2: new Vector2(h.x + h.w, h.y + h.h), side: 'right' },
-                    { p1: new Vector2(h.x + h.w, h.y + h.h), p2: new Vector2(h.x, h.y + h.h), side: 'bottom' },
-                    { p1: new Vector2(h.x, h.y + h.h), p2: new Vector2(h.x, h.y), side: 'left' }
-                ];
+    houses.forEach(h => {
+        h.walls = [];
+        
+        // Formulate every single wall segment strictly from lowest coordinate to highest coordinate
+        let rawWalls = [
+            { p1: new Vector2(h.x, h.y), p2: new Vector2(h.x + h.w, h.y), side: 'top', type: 'horizontal' },
+            { p1: new Vector2(h.x + h.w, h.y), p2: new Vector2(h.x + h.w, h.y + h.h), side: 'right', type: 'vertical' },
+            { p1: new Vector2(h.x, h.y + h.h), p2: new Vector2(h.x + h.w, h.y + h.h), side: 'bottom', type: 'horizontal' },
+            { p1: new Vector2(h.x, h.y), p2: new Vector2(h.x, h.y + h.h), side: 'left', type: 'vertical' }
+        ];
 
-                rawWalls.forEach(wall => {
-                    let overlappingDoors = h.doors.filter(d => d.side === wall.side);
-                    if (overlappingDoors.length > 0) {
-                        let points = [wall.p1.copy(), wall.p2.copy()];
-                        overlappingDoors.forEach(d => {
-                            if (wall.side === 'top' || wall.side === 'bottom') {
-                                h.walls.push({ p1: points[0].copy(), p2: new Vector2(d.x, points[0].y) });
-                                points[0].set(d.x + d.w, points[0].y);
-                            } else {
-                                h.walls.push({ p1: points[0].copy(), p2: new Vector2(points[0].x, d.y) });
-                                points[0].set(points[0].x, d.y + d.h);
-                            }
-                        });
-                        h.walls.push({ p1: points[0], p2: points[1] });
+        rawWalls.forEach(wall => {
+            let overlappingDoors = h.doors.filter(d => d.side === wall.side);
+            if (overlappingDoors.length > 0) {
+                let points = [wall.p1.copy(), wall.p2.copy()];
+                
+                overlappingDoors.forEach(d => {
+                    if (wall.type === 'horizontal') {
+                        h.walls.push({ p1: points[0].copy(), p2: new Vector2(d.x, points[0].y) });
+                        points[0].set(d.x + d.w, points[0].y);
                     } else {
-                        h.walls.push(wall);
+                        h.walls.push({ p1: points[0].copy(), p2: new Vector2(points[0].x, d.y) });
+                        points[0].set(points[0].x, d.y + d.h);
                     }
                 });
-            });
-        }
-
+                // Build the remaining trailing wall piece cleanly
+                if (points[0].dist(points[1]) > 1) {
+                    h.walls.push({ p1: points[0], p2: points[1] });
+                }
+            } else {
+                h.walls.push(wall);
+            }
+        });
+    });
+}
         let items = []; let zombies = []; let bullets = [];
         let currentlyVisibleHouses = [];
 
@@ -277,22 +283,23 @@
             }
         }
 
+        // --- FIXED REPOPULATION OVERWRITE TRAP ---
         function populateZombies() {
-            zombies = []; 
-            for(let i=0; i<30; i++) {
-                zombies.push({
-                    id: i,
-                    pos: new Vector2(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT),
-                    velocity: new Vector2((Math.random()-0.5)*2, (Math.random()-0.5)*2),
-                    wanderAngle: Math.random() * Math.PI * 2,
-                    health: 35,
-                    isAgro: false
-                });
+            // Smooth append mode: stops wiping live vectors out of active frames
+            while(zombies.length < 30) {
+                let spawnPos = new Vector2(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT);
+                if(spawnPos.dist(agent.pos) > 300) {
+                    zombies.push({
+                        pos: spawnPos,
+                        velocity: new Vector2((Math.random()-0.5)*2, (Math.random()-0.5)*2),
+                        wanderAngle: Math.random() * Math.PI * 2,
+                        health: 35,
+                        isAgro: false
+                    });
+                }
             }
-            zombies.forEach(z => { if(z.pos.dist(agent.pos) < 300) z.pos.add(new Vector2(500, 500)); });
         }
 
-        // --- EXPOSED CONTROLLER API ---
         const AI_API = {
             getAgentStats: () => ({ health: agent.health, energy: agent.energy, stamina: agent.stamina, pos: agent.pos.copy() }),
             getVisibleZombies: () => zombies.filter(z => isPointInView(z.pos)),
@@ -339,8 +346,7 @@
             dropItem: (slotIndex) => { agent.inventory[slotIndex] = null; }
         };
 
-        const initialAICode = `// Write your custom logic inside this runtime loop!
-const stats = api.getAgentStats();
+        const initialAICode = `const stats = api.getAgentStats();
 const enemies = api.getVisibleZombies();
 const loot = api.getVisibleItems();
 const inv = api.getInventory();
@@ -377,9 +383,7 @@ api.wander();`;
                 let codeText = document.getElementById('ai-textarea').value;
                 compiledUserAI = new Function("api", codeText);
                 toggleAIModal(false);
-            } catch (err) {
-                alert("Compilation Error: " + err.message);
-            }
+            } catch (err) { alert("Compilation Error: " + err.message); }
         }
 
         function getIntersection(p1, p2, p3, p4) {
@@ -453,10 +457,10 @@ api.wander();`;
             return circleCenter.add(displacement).limit(entity.maxForce);
         }
 
-        // --- UPGRADED WALL AVOIDANCE FORCE FOR WANDERING ENEMIES ---
         function getWallAvoidanceForce(entity) {
             let avoidance = new Vector2(0, 0);
             let lookAheadDist = 60;
+            if(entity.velocity.mag() < 0.1) return avoidance;
             let ray = entity.velocity.copy().normalize().mult(lookAheadDist);
             let rayEnd = entity.pos.copy().add(ray);
 
@@ -464,7 +468,6 @@ api.wander();`;
                 h.walls.forEach(w => {
                     let hit = getIntersection(entity.pos, rayEnd, w.p1, w.p2);
                     if (hit) {
-                        // Generate a dynamic bouncing reflection force away from the wall normal
                         let wallVec = w.p2.copy().sub(w.p1).normalize();
                         let normal = new Vector2(-wallVec.y, wallVec.x);
                         avoidance.add(normal.mult(entity.maxSpeed * 2));
@@ -534,33 +537,35 @@ api.wander();`;
                 if(broken || bullets[b].pos.x < 0 || bullets[b].pos.x > WORLD_WIDTH || bullets[b].pos.y < 0 || bullets[b].pos.y > WORLD_HEIGHT) { bullets.splice(b,1); }
             }
 
-            // --- FIXED ENEMY STEERING AND AGRO TRACKING ---
-            zombies.forEach((z) => {
+            // --- SAFE BACKWARD PASS LOOP (FIXED DELETION PHASING CRASHES) ---
+            for (let i = zombies.length - 1; i >= 0; i--) {
+                let z = zombies[i];
+                
+                if (z.health <= 0) {
+                    zombies.splice(i, 1);
+                    agent.score += 40;
+                    continue;
+                }
+
                 let distToAgent = z.pos.dist(agent.pos);
                 let zForce;
                 
                 if (distToAgent < CONFIG.zombieAgro) {
-                    z.isAgro = true; 
-                    zForce = steerArrive(z, agent.pos); 
+                    z.isAgro = true; zForce = steerArrive(z, agent.pos); 
                 } else {
-                    z.isAgro = false; 
-                    zForce = steerWander(z);
-                    // Append continuous wall avoidance pushes to eliminate getting stuck
-                    zForce.add(getWallAvoidanceForce(z));
+                    z.isAgro = false; zForce = steerWander(z); zForce.add(getWallAvoidanceForce(z));
                 }
                 
                 z.velocity.add(zForce).limit(z.isAgro ? 1.7 : 1.0); 
                 z.pos.add(z.velocity); 
                 processCollisions(z, 10);
                 
-                // Fixed layout bit checking: Does not affect active render positions
-                if(distToAgent < 14) { agent.health = Math.max(0, agent.health - 0.03); agent.bitten = "TRUE"; }
-            });
+                if(distToAgent < 14) { agent.health = Math.max(0, agent.health - 0.03); }
+            }
             
-            // Clean global post-tick bite evaluation pass
             agent.bitten = zombies.some(z => z.pos.dist(agent.pos) < 15) ? "TRUE" : "FALSE";
 
-            for(let i=items.length-1; i>=0; i--) {
+            for(let i=items.length-1; i >= 0; i--) {
                 if(agent.pos.dist(items[i].pos) < 15) {
                     let itemMeta = items[i].meta;
                     let freeSlot = agent.inventory.findIndex(slot => slot === null);
@@ -572,6 +577,7 @@ api.wander();`;
                 }
             }
             if(items.length < 12) spawnItemPool(15);
+            if(zombies.length < 30) populateZombies(); // Safe non-overwriting top-off routine
         }
 
         function draw() {
@@ -584,7 +590,6 @@ api.wander();`;
             ctx.scale(currentScale, currentScale);
 
             ctx.strokeStyle = '#111'; ctx.lineWidth = 10; ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-
             ctx.strokeStyle = '#5a9e5a'; ctx.lineWidth = 6;
             houses.forEach(h => { h.walls.forEach(w => { ctx.beginPath(); ctx.moveTo(w.p1.x, w.p1.y); ctx.lineTo(w.p2.x, w.p2.y); ctx.stroke(); }); });
 
@@ -627,7 +632,7 @@ api.wander();`;
             for(let i=0; i<5; i++) {
                 let text = agent.inventory[i] ? agent.inventory[i].name : 'Empty';
                 document.getElementById(`ui-slot${i}`).innerText = text;
-                document.getElementById(`ui-slot${i}`).style.color = (i === agent.selectedSlot) ? '#55ff55' : '#aaaaaa';
+                document.getElementById(`ui-slot${i}`).style.color = '#aaaaaa';
             }
         }
 
@@ -638,8 +643,7 @@ api.wander();`;
             CONFIG.agentFovDeg = parseFloat(document.getElementById('cfg-agentfov').value);
             
             agent.fovAngle = (CONFIG.agentFovDeg * Math.PI) / 180;
-
-            items = []; bullets = [];
+            items = []; bullets = []; zombies = [];
             initHouses();
             
             agent.pos.set(325, 300); agent.velocity.set(0, 0); agent.acceleration.set(0, 0);
